@@ -2,7 +2,7 @@
 Display methods for MDPD objects
 """
 from __future__ import division
-from helper import *
+from utils import *
 import random
 import numpy as np
 import cPickle

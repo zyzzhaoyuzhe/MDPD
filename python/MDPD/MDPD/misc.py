@@ -26,7 +26,7 @@ def align(model1, model2):
     # swap
     if np.unique(order).size == model1.c:
         output = copy.deepcopy(model2)
-        output.swap_Label(order)
+        output.reorder(order)
         return output
     else:
         return model2

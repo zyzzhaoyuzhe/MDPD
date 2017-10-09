@@ -93,9 +93,12 @@ def get_Ci(train_g, W, Cg, g, data, i):
     foo = 1./n * np.dot(data[:, i, :].T, train_g[g].transpose())
     Ci = np.dot(foo, np.linalg.inv(np.dot(np.diag(W), Cg[g].transpose())))
     # if there is negative entries
-    Ci[Ci<0] = 0.01
+    Ci[Ci<=0] = 0.001
     # normalize Ci's column
     Ci = Ci/np.sum(Ci, axis=0)
+    Ci[Ci<=0] = 0.001
+    Ci[Ci>=1] = 0.999
+    Ci = Ci / np.sum(Ci, axis=0)
     return Ci
 
 
@@ -124,8 +127,10 @@ def tp_helper(m3_tilde, eig_val, eig_vec, num, L=10, N=100):
             temp = temp2 * temp3
             old_vec = vec
             vec = 1./n * np.dot(m3_tilde[0], temp)
+            # normalize vec
             for k in range(num):
                 vec = vec - eig_val[k] * eig_vec[:, k] * np.dot(old_vec, eig_vec[:, k])**2
+                # vec -= eig_vec[:, k] * np.dot(vec, eig_vec[:, k])
             vec = vec/np.linalg.norm(vec)
         foo_vec[:, tau] = vec
         foo_lambda[tau] = np.mean(np.dot(vec, m3_tilde[0]) *
