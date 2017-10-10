@@ -61,7 +61,7 @@ def mstep(logpost, data):
     nsample, dim, nvocab = data.shape
     # update C
     post = np.exp(logpost)
-    newlogC = np.log(np.tensordot(data, post, axes=(0, 0)))
+    newlogC = np.log(np.tensordot(data, post, axes=(0, 0))) - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
     # if turn log(0) to -100
     newlogC[np.isinf(newlogC)] = -100
     newlogC -= logsumexp(newlogC, axis=1)[:, np.newaxis, :]
@@ -76,7 +76,7 @@ def init_mv(data, feature_set):  # majority vote
     votes = data_selected.sum(axis=1)  # n-r
     logpost = np.log(votes / votes.sum(axis=1)[:, np.newaxis])
     logpost[np.isneginf(logpost)] = -100
-    return mstep(logpost, data)
+    return mstep(logpost, data_selected)
 
 
 def init_random(dim, ncomp, nvocab):
@@ -137,6 +137,16 @@ def init_spectral(data, ncomp):
         # C.append(foo)
     return np.log(W), np.log(C)
 
+# MDPD feature selection
+def MI_feature_selection(data, topN):
+    pairwise_MI = MI_data(data)
+    score = pairwise_MI.sum(axis=(1, 3))
+    np.fill_diagonal(score, 0)
+    score = score.sum(axis=1)
+    ranking = np.argsort(score, axis=None)[::-1]
+    return ranking[:topN], score[ranking]
+
+
 # Mutual Information in the data conditional on the model
 # def get_MIres(data, W, C, infoset, rm_diag=False):
 #     dim = len(data)
@@ -186,7 +196,7 @@ def MIres_fast(data, logpost, rm_diag=False, weighted=False):
 
 def MI_data(data):
     nsample, dim, nvocab = data.shape
-    logpost = np.zeros([1, nsample])
+    logpost = np.zeros([nsample, 1])
     newlogW, newlogC = mstep(logpost, data)
     second = 1. / nsample * np.tensordot(data, data, axes=(0, 0))
     logfirst = np.add.outer(newlogC[:, :, 0], newlogC[:, :, 0])

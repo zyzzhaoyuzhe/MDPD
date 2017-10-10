@@ -41,7 +41,7 @@ model = MDPD.MDPD()
 model.get_config(dim=dim, nsample=nsample, ncomp=50, nvocab=nvocab)
 
 
-output = model.train(data, method="StageEM", stopcrit='niter', niter=100)
+output = model.fit(data, init="StageEM", stopcrit='niter', niter=100)
 MI_remain = model.get_MI(data, rm_diag=True)
 
 

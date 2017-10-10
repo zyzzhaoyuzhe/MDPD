@@ -43,7 +43,7 @@ def fsmv_curve(feature_rank, train, test, label, f_range, ncomp, niter=50):
         label_info = label[valid_sample]
         # majority vote
         model = MDPD.MDPD(train_info, ncomp)
-        model.train(train_info, method='majority', niter=niter)
+        model.fit(train_info, init='majority', niter=niter)
         _, err = model.predict(test_info, label_info, subset=range(model.dim))
         _, err_mv = mv_predictor(test_info, label_info)
         err *= len(label_info)
@@ -78,7 +78,7 @@ def fsspec_curve(feature_rank, train, test, label, f_range, ncomp, niter=50, epo
         for _ in xrange(epoch):
             try:
                 signal.alarm(90)
-                model.train(train_info, method='spectral', niter=niter)
+                model.fit(train_info, init='spectral', niter=niter)
                 model.align(test_info, label_info, range(model.dim))
                 _, err = model.predict(test_info, label_info, subset=range(model.dim))
                 err *= len(label_info)
@@ -177,11 +177,15 @@ label = read_label(os.path.join(folder, 'bluebird_truth.txt'))
 
 ########## to generate ICML figure wrapper
 model = MDPD.MDPD()
-model.train(train, ncomp=2)
+model.fit(train, ncomp=2, verbose=False)
+model.score(train, label)
+
+features, score = utils.MI_feature_selection(train, 10)
+model.fit(train, ncomp=2, verbose=False, features=features)
+model.score(train, label)
 
 
 
-model = MDPD.MDPD(train_pad, 2)
 feature_rank, vals = model.init_topNfeatures(train_pad, model.dim)
 
 plt.figure(figsize=(8, 2))
@@ -241,7 +245,7 @@ plt.legend(['MV', 'MV+EM', 'MV(cheat)', 'MV+EM(cheat)'])
 
 # stagewise EM
 model = MDPD.MDPD(train, 2)
-output = model.train(train, method="StageEM", niter=30)
+output = model.fit(train, init="StageEM", niter=30)
 model.align(train, label, range(model.dim))
 model.predict(train, label, subset=range(model.dim))
 model.refine(train)
@@ -249,7 +253,7 @@ model.predict(train, label, subset=range(model.dim))
 
 # spec
 model = MDPD.MDPD(train, 2)
-model.train(train, method="spectral", niter=2)
+model.fit(train, init="spectral", niter=2)
 model.predict(train, label, subset=range(model.dim))
 
 # spec with infoset
@@ -266,19 +270,19 @@ print len(infoset)
 train_info = train[:, infoset, :]
 
 model = MDPD.MDPD(train_info, 2)
-model.train(train_info, method='spectral', niter=10)
+model.fit(train_info, init='spectral', niter=10)
 model.predict(train_info, label, subset=range(model.dim))
 
 # majority vote
 model = MDPD.MDPD(train, 2)
-model.train(train, method='majority', niter=20)
+model.fit(train, init='majority', niter=20)
 model.predict(train, label, subset=range(model.dim))
 mv_predictor(train, label)
 # print sum(train.sum(axis=1).argmax(axis=1) - label!=0) / len(label)
 
 # majority vote with infoset
 model = MDPD.MDPD(train_info, 2)
-model.train(train_info, method='majority', niter=20)
+model.fit(train_info, init='majority', niter=20)
 model.predict(train_info, label, subset=range(model.dim))
 mv_predictor(train_info, label)
 
@@ -358,7 +362,7 @@ plt.legend(['MV', 'MV+EM', 'MV*', 'MV+EM*)'])
 model = MDPD.MDPD(train_pad, 4)
 model.reset(train_pad)
 model.lock[:, 4] = 0
-model.train(train_pad, ncomp=4, method="StageEM", niter=50, reset=False)
+model.fit(train_pad, ncomp=4, init="StageEM", niter=50, reset=False)
 model.align(train_pad, label, range(model.dim))
 model.predict(train_pad, label, subset=range(model.dim))
 model.refine(train_pad)
@@ -366,7 +370,7 @@ model.predict(train_pad, label, subset=range(model.dim))
 
 # spec
 model = MDPD.MDPD(train, 4)
-model.train(train, method="spectral", niter=2)
+model.fit(train, init="spectral", niter=2)
 model.predict(train, label, subset=range(model.dim))
 
 # spec with infoset
@@ -385,19 +389,19 @@ print len(infoset)
 train_info = train[:, infoset, :]
 
 model = MDPD.MDPD(train_info, 4)
-model.train(train_info, method='spectral', niter=10)
+model.fit(train_info, init='spectral', niter=10)
 model.predict(train_info, label_info, subset=range(model.dim))
 
 # majority vote
 model = MDPD.MDPD(train, 4)
-model.train(train, method='majority', niter=30)
+model.fit(train, init='majority', niter=30)
 model.predict(train, label, subset=range(model.dim))
 _ = mv_predictor(train, label)
 print sum(train.sum(axis=1).argmax(axis=1) - label!=0) / len(label)
 
 # majority vote with infoset
 model = MDPD.MDPD(train_info, 4)
-model.train(train_info, method='majority', niter=30)
+model.fit(train_info, init='majority', niter=30)
 model.predict(train_info, label_info, subset=range(model.dim))
 _ = mv_predictor(train_info, label_info)
 print sum(train_info.sum(axis=1).argmax(axis=1) - label_info!=0) / len(label)
@@ -492,7 +496,7 @@ plt.legend(['MV', 'MV+EM', 'MV(cheat)', 'MV+EM(cheat)'])
 model = MDPD.MDPD(train_pad, 2)
 model.reset(train_pad)
 model.lock[:, 2] = 0
-model.train(train_pad, ncomp=2, method="StageEM", niter=50, reset=False, feature_init=100)
+model.fit(train_pad, ncomp=2, init="StageEM", niter=50, reset=False, feature_init=100)
 model.align(train_pad, label, range(model.dim))
 model.predict(train_pad, label, subset=range(model.dim))
 model.refine(train_pad)
@@ -502,7 +506,7 @@ model.predict(train_pad, label, subset=range(model.dim))
 foo = []
 for _ in xrange(20):
     model = MDPD.MDPD(train, 2)
-    model.train(train, method="spectral", niter=2)
+    model.fit(train, init="spectral", niter=2)
     _, err = model.predict(train, label, subset=range(model.dim))
     foo.append(err)
 
@@ -522,20 +526,20 @@ print len(infoset)
 train_info = train[:, infoset, :]
 
 model = MDPD.MDPD(train_info, 2)
-model.train(train_info, method='spectral', niter=10)
+model.fit(train_info, init='spectral', niter=10)
 model.align(train_info, label, range(model.dim))
 model.predict(train_info, label, subset=range(model.dim))
 
 # majority vote
 model = MDPD.MDPD(train, 2)
-model.train(train, method='majority', niter=20)
+model.fit(train, init='majority', niter=20)
 model.predict(train, label, subset=range(model.dim))
 _ = mv_predictor(train, label)
 print sum(train.sum(axis=1).argmax(axis=1) - label!=0) / len(label)
 
 # majority vote with infoset
 model = MDPD.MDPD(train_info, 2)
-model.train(train_info, method='majority', niter=20)
+model.fit(train_info, init='majority', niter=20)
 model.predict(train_info, label, subset=range(model.dim))
 _ = mv_predictor(train_info, label_info)
 print sum(train_info.sum(axis=1).argmax(axis=1) - label_info!=0) / len(label)
@@ -600,7 +604,7 @@ plt.legend(['opt-D&S', 'MV', 'MV+EM', 'MV*', 'MV+EM*'])
 foo = []
 
 model = MDPD.MDPD(train, 2)
-model.train(train, method="spectral", niter=30)
+model.fit(train, init="spectral", niter=30)
 model.align(test, label, range(model.dim))
 _, err = model.predict(test, label, subset=range(model.dim))
 foo.append(err)
@@ -620,18 +624,18 @@ label_info = label[valid_sample]
 print len(label), len(label_info)
 
 model = MDPD.MDPD(train_info, 2)
-model.train(train_info, method='spectral', niter=10)
+model.fit(train_info, init='spectral', niter=10)
 model.predict(test_info, label_info, subset=range(model.dim))
 
 # majority vote
 model = MDPD.MDPD(train, 2)
-model.train(train, method='majority', niter=20)
+model.fit(train, init='majority', niter=20)
 model.predict(test, label, subset=range(model.dim))
 _ = mv_predictor(test, label)
 
 # majority vote with infoset
 model = MDPD.MDPD(train_info, 2)
-model.train(train_info, method='majority', niter=20)
+model.fit(train_info, init='majority', niter=20)
 model.predict(test_info, label_info, subset=range(model.dim))
 _ = mv_predictor(test_info, label_info)
 
@@ -720,7 +724,7 @@ plt.legend(['MV', 'MV+EM', 'MV(cheat)', 'MV+EM(cheat)'])
 model = MDPD.MDPD(train_pad, 5)
 model.reset(train_pad)
 model.lock[:, 2] = 0
-model.train(train_pad, ncomp=5, method="StageEM", niter=50, reset=False, feature_init=12)
+model.fit(train_pad, ncomp=5, init="StageEM", niter=50, reset=False, feature_init=12)
 model.align(train_pad, label, range(model.dim))
 model.predict(train_pad, label, subset=range(model.dim))
 model.refine(train_pad)
@@ -731,7 +735,7 @@ infoset = model.infoset
 foo = []
 for _ in xrange(20):
     model = MDPD.MDPD(train, 5)
-    model.train(train, method="spectral", niter=30)
+    model.fit(train, init="spectral", niter=30)
     _, err = model.predict(train, label, subset=range(model.dim))
     foo.append(err)
 
@@ -752,18 +756,18 @@ label_info = label[valid_sample]
 # train_info = train[:, infoset, :]
 
 model = MDPD.MDPD(train_info, 5)
-model.train(train_info, method='spectral', niter=30)
+model.fit(train_info, init='spectral', niter=30)
 model.predict(train_info, label_info, subset=range(model.dim))
 
 # majority vote
 model = MDPD.MDPD(train, 5)
 # model.lock[:, -1] = 0
-model.train(train, method='majority', niter=100)
+model.fit(train, init='majority', niter=100)
 model.predict(train, label, subset=range(model.dim))
 mv_predictor(train, label)
 
 # majority vote with infoset
 model = MDPD.MDPD(train_info, 5)
-model.train(train_info, method='majority', niter=100)
+model.fit(train_info, init='majority', niter=100)
 model.predict(train_info, label_info, subset=range(model.dim))
 mv_predictor(train_info, label_info)

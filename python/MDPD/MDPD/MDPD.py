@@ -26,11 +26,8 @@ class MDPD_basic(object):
     def __init__(self):
         '''constructor'''
         self.dim = None  # dimension
-        # self.trace = None   # trace used by merge method
-        # self.nsample = None  # number of sample
         self.ncomp = None  # number of components (or the target number of components)
         self.nvocab = None  # size of discrete alphabet
-        # self.label = None
         self._logW = None  # log mixing weights
         self._logC = None  # log confusion matrix
 
@@ -66,20 +63,20 @@ class MDPD_basic(object):
 
     def log_posterior(self, data):
         foo = utils.log_joint_prob_fast(data, self._logW, self._logC)
-        lsum = utils.logsumexp(foo, axis=0)
-        return foo - lsum[np.newaxis, :]
+        lsum = utils.logsumexp(foo, axis=1)
+        return foo - lsum[:, np.newaxis]
 
     def predict(self, data):
-        logpost = self.log_posterior(data=data)
-        return np.argmax(logpost, axis=0)
+        logpost = MDPD_basic.log_posterior(self, data)
+        return np.argmax(logpost, axis=1)
 
     def score(self, data, label):
-        pred = self.predict(data)
+        pred = MDPD_basic.predict(self, data)
         if label.shape != pred.shape:
             raise ValueError('The shape of label is {}. However, {} is expected.'.format(label.shape, pred.shape))
         else:
             acc = sum(pred - label == 0) / label.size
-            print 'Accuracy: {0:.2%}'.format(acc)
+            logger.info('ACCURACY: {0:.2%}'.format(acc))
 
     def reorder(self, order):
         """Perform label swap according to 'order'."""
@@ -228,45 +225,39 @@ class MDPD(MDPD_basic, object):
         bar = np.argsort(score, axis=None)[::-1]
         return bar[:topN], score[bar]
 
-    # def init_beta(self, data, topN, ncomp):
-    #     infoset = self.init_topNfeatures(data, topN)
-    #     data_info = data[:, infoset, :]
-    #     model_spec = MDPD.MDPD(data_info, ncomp)
-    #     model_spec.train(data_info, method="spectral", niter=1)
-    #     post = model_spec.logposterior(subset=range(model_spec.dim))
-    #     newlogW, newlogC = self.Mstep(post, data)
-    #     self.logW = newlogW
-    #     self.logC = self.logC
-    #     self.__init__(data, ncomp=ncomp)
-
-
-    def train(self, data, ncomp, method="majority", niter=30, diffthre=0.001, init=True,
-              display=True, features=-1):
+    def fit(self, data, ncomp,
+            features=None,
+            init="majority", init_label=None, init_para=None,
+            niter=30,
+            verbose=True):
         nsample, dim, nvocab = data.shape
-        if init:
-            self.dim, self.nvocab = dim, nvocab
-            self.ncomp = ncomp
-        if features == -1:
-            self.feature_set = range(dim)
-        else:
-            self.feature_set = features
-
         logger.info(
             "Training an MDPD with dimension %i, sample size %i, vocab size %i and the target number of components %i",
             self.dim, nsample, self.nvocab, self.ncomp)
-        # choosing fitting methods
-        if method == "majority":
+        if init:
+            self.dim, self.nvocab = dim, nvocab
+            self.ncomp = ncomp
+        self.feature_set = features if features else range(dim)
+        # choose initialization method
+        if sum(map(bool, [init, init_label, init_para])) != 1:
+            raise ValueError('Use one and only one of init, init_label, init_para.')
+        if init == "majority":
             self.logW, self.logC = utils.init_mv(data, self.feature_set)
-        elif method == "plain":
+        elif init == "random":
             self.logW, self.logC = utils.init_random(self.dim, self.ncomp, self.nvocab)
-        elif method == "spectral":
+        elif init == "spectral":
             self.logW, self.logC = utils.init_spectral(data, self.ncomp)
+        if init_label:
+            self.logW, self.logC = utils.mstep(init_label, data[:, self.feature_set, :])
+        if init_para:
+            self.logW, self.logC = init_para
         # statistics
-        ll = self.loglikelihood(data)
+        ll = self.log_likelihood(data)
         for count in xrange(niter):
             self.EM(data)
             ll = self.log_likelihood(data)
-            logger.info("iteration %d; log-likelihood %f;", count, ll)
+            if verbose:
+                logger.info("iteration %d; log-likelihood %f;", count, ll)
 
         # count = 0
         #
@@ -278,93 +269,18 @@ class MDPD(MDPD_basic, object):
         #     if count >= niter:
         #         break
 
-    def reset(self, data):
-        self.feature_set = []
-        self.logC = np.log(data.mean(axis=0).squeeze()[:, :, np.newaxis])
-        self.logC[np.isinf(self.logC)] = -100
-        self.logC -= logsumexp(self.logC, axis=1)[:, np.newaxis, :]
-        self.lock = np.ones(self.logC.shape)
-        # self.C = [data[i].mean(axis=1)[:, np.newaxis] for i in range(self.dim)]
-        self.logW = np.asarray([0])
-        self.ncomp = 1
-        pass
+    # def reset(self, data):
+    #     self.feature_set = []
+    #     self.logC = np.log(data.mean(axis=0).squeeze()[:, :, np.newaxis])
+    #     self.logC[np.isinf(self.logC)] = -100
+    #     self.logC -= logsumexp(self.logC, axis=1)[:, np.newaxis, :]
+    #     self.lock = np.ones(self.logC.shape)
+    #     # self.C = [data[i].mean(axis=1)[:, np.newaxis] for i in range(self.dim)]
+    #     self.logW = np.asarray([0])
+    #     self.ncomp = 1
+    #     pass
 
-    # def init_random(self):  # random init
-    #     self.logW = np.ones(self.ncomp) / self.ncomp
-    #     self.logC = np.random.random_sample((self.dim, self.nvocab, self.ncomp))
-    #     self.logC /= self.logC.sum(axis=1)[:, np.newaxis, :]
-    #     if self.lock is None:
-    #         self.lock = np.zeros(self.logC.shape)
-    #
-    # def init_mv(self, data):  # majority vote
-    #     """
-    #
-    #     :return:
-    #     """
-    #     # make sure all workers has same output size
-    #     foo = data.sum(axis=1).astype(np.float)
-    #     logpost = np.log(foo / foo.sum(axis=1)[:, np.newaxis]).T
-    #     logpost[np.isinf(logpost)] = -100
-    #     # foo = foo.argmax(axis=1)
-    #     # logpost = np.ones([data.shape[2] ,data.shape[0]]) * -100
-    #     # logpost[foo, range(data.shape[0])] = 0
-    #     # soft
-    #     logW, logC = self.mstep(logpost, data)
-    #     self.logW = logW
-    #     self.logC = logC
-    #     if self.lock is None:
-    #         self.lock = np.ones(self.logC.shape)
-    #
-    # def init_spec(self, data):
-    #     """
-    #     Use spectral methods to initialize EM. (Zhang. and Jordan. 2014)
-    #     :param data:
-    #     :return:
-    #     """
-    #     # divide workers into 3 partitions
-    #     num_worker_partition = int(self.dim / 3)
-    #     # np.random.seed(seed=10)
-    #     foo = np.random.permutation(self.dim)
-    #
-    #     partition = [None] * 3
-    #     partition[0] = foo[:num_worker_partition]
-    #     partition[1] = foo[num_worker_partition:2 * num_worker_partition]
-    #     partition[2] = foo[2 * num_worker_partition:]
-    #
-    #     # calculate average response to each sample for each group
-    #     train_g = [None] * 3
-    #     for g in range(3):
-    #         foo = data[:, partition[g], :]
-    #         train_g[g] = np.mean(foo, axis=1).T
-    #
-    #     #
-    #     perm = [[1, 2, 0], [2, 0, 1], [0, 1, 2]]
-    #     #
-    #     W = []
-    #     Cg = []
-    #     for g in range(3):
-    #         a = perm[g][0]
-    #         b = perm[g][1]
-    #         c = perm[g][2]
-    #         m2, m3 = get_tensor(train_g, a, b, c)
-    #         foo, bar = tensorpower(m2, m3, self.ncomp)
-    #         W.append(foo)
-    #         Cg.append(bar)
-    #     W = np.mean(np.asarray(W), axis=0)
-    #     # normalize W
-    #     W /= sum(W)
-    #     # use Cg to recover C for each worker
-    #     C = np.zeros((self.dim, self.nvocab, self.ncomp))
-    #     for i in range(self.dim):
-    #         foo = np.zeros((self.ncomp, self.ncomp))
-    #         for g in range(3):
-    #             if i not in partition[g]:
-    #                 foo += get_Ci(train_g, W, Cg, g, data, i)
-    #         foo = foo / 2
-    #         C[i, :, :] = foo
-    #         # C.append(foo)
-    #     self.logC = np.log(C)
-    #     self.logW = np.log(W)
+
 
     # fine tune
     def refine(self, data, infoset=None, niter=20):
@@ -416,11 +332,12 @@ class MDPD(MDPD_basic, object):
     ## EM step
     def EM(self, data):
         #
+        data_selected = data[:, self.feature_set, :]
         lock = self.lock
         # E-step
-        post = self.log_posterior(data)
+        logpost = self.log_posterior(data)
         # M-step (full M-step)
-        newlogW, newlogC = utils.mstep(post, data)
+        newlogW, newlogC = utils.mstep(logpost, data_selected)
         if np.any(lock == 0):
             newlogC[lock == 0] = -100
             self.logC[lock == 1] = -100
@@ -442,6 +359,10 @@ class MDPD(MDPD_basic, object):
     # ## get MI
     # def get_MI(self, data, rm_diag=False, subset=None):
     #     return get_MI(data, self.logW, self.logC, subset or self.feature_set, rm_diag=rm_diag)
+
+    def log_likelihood(self, data):
+        data_selected = data[:, self.feature_set, :]
+        return MDPD_basic.log_likelihood(self, data_selected)
 
     def log_posterior(self, data):
         data_selected = data[:, self.feature_set, :]
