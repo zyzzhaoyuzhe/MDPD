@@ -252,12 +252,10 @@ class MDPD(MDPD_basic, object):
         if init_para:
             self.logW, self.logC = init_para
         # statistics
-        ll = self.log_likelihood(data)
         for count in xrange(niter):
             self.EM(data)
-            ll = self.log_likelihood(data)
             if verbose:
-                logger.info("iteration %d; log-likelihood %f;", count, ll)
+                logger.info("iteration %d; log-likelihood %f;", count, self.log_likelihood(data))
 
         # count = 0
         #
