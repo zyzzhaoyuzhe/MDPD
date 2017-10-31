@@ -26,6 +26,17 @@ def missing_heatmap(train):
     plt.ylabel('item number', fontsize=16)
 
 def fsmv_curve(feature_rank, train, test, label, f_range, ncomp, niter=50):
+    """
+    Accuracy curve for feature selection majority vote (scan # of featuers)
+    :param feature_rank:
+    :param train:
+    :param test:
+    :param label:
+    :param f_range:
+    :param ncomp:
+    :param niter:
+    :return:
+    """
     mv_err = []
     mvem_err = []
     nquestion = []
@@ -159,7 +170,6 @@ def read_label(file):
             output[j] = l
     return output
 
-
 ### Bird data
 folder = '/home/vincent/Documents/Research/MDPD/crowdsourcing_datasets/bird'
 train = read_data(os.path.join(folder, 'bluebird_crowd.txt'))
@@ -186,10 +196,10 @@ model.score(train, label)
 
 
 
-feature_rank, vals = model.init_topNfeatures(train_pad, model.dim)
+# feature_rank, vals = model.init_topNfeatures(train_pad, model.dim)
 
 plt.figure(figsize=(8, 2))
-plt.plot(vals)
+plt.plot(score)
 # plt.title('Mutual Information Score (eq 1)', fontsize=20)
 plt.ylabel('Score', fontsize=16)
 

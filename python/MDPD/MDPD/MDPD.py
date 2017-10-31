@@ -47,14 +47,12 @@ class MDPD_basic(object):
     def logC(self, val):
         self._logC = deepcopy(val)
 
-
     def get_config(self, dim=None, nsample=None, ncomp=None, nvocab=None):
         """Get model configuration"""
         self.dim = int(dim)
         self.nsample = int(nsample)
         self.ncomp = int(ncomp)
         self.nvocab = int(nvocab)
-
 
     def log_likelihood(self, data):
         foo = utils.log_joint_prob_fast(data, self._logW, self._logC)
@@ -237,7 +235,7 @@ class MDPD(MDPD_basic, object):
         if init:
             self.dim, self.nvocab = dim, nvocab
             self.ncomp = ncomp
-        self.feature_set = features if features else range(dim)
+        self.feature_set = features if features is not None else range(dim)
         # choose initialization method
         if sum(map(bool, [init, init_label, init_para])) != 1:
             raise ValueError('Use one and only one of init, init_label, init_para.')
