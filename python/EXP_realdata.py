@@ -40,23 +40,23 @@ def fsmv_curve(feature_rank, train, test, label, f_range, ncomp, niter=50):
     mv_err = []
     mvem_err = []
     nquestion = []
-    for nfeatures in f_range:
+    for topN in f_range:
         # feature selection
-        infoset = feature_rank[:nfeatures]
-        print len(infoset)
-        train_info = train[:, infoset, :]
-        valid_sample = train_info.sum(axis=(1, 2)) > 0
-        train_info = train_info[valid_sample, :]
-        test_info = test[:, infoset, :]
-        valid_sample = test_info.sum(axis=(1,2)) > 0
+        features = feature_rank[:topN]
+        print len(features)
+        train_selected = train[:, features, :]
+        valid_sample = train_selected.sum(axis=(1, 2)) > 0
+        train_selected = train_selected[valid_sample, :]
+        test_selected = test[:, features, :]
+        valid_sample = test_selected.sum(axis=(1,2)) > 0
         nquestion.append(sum(valid_sample == True))
-        test_info = test_info[valid_sample, :]
+        test_selected = test_selected[valid_sample, :]
         label_info = label[valid_sample]
         # majority vote
-        model = MDPD.MDPD(train_info, ncomp)
-        model.fit(train_info, init='majority', niter=niter)
-        _, err = model.predict(test_info, label_info, subset=range(model.dim))
-        _, err_mv = mv_predictor(test_info, label_info)
+        model = MDPD.MDPD()
+        model.fit(train_selected, ncomp, init='majority', niter=niter)
+        _, err = model.predict(test_selected, label_info, subset=range(model.dim))
+        _, err_mv = mv_predictor(test_selected, label_info)
         err *= len(label_info)
         err += (test.shape[0] - nquestion[-1]) * (test.shape[2] - 1) / test.shape[2]
         err /= len(label)
