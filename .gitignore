@@ -96,5 +96,7 @@ ENV/
 # compiled file
 *.mexa64
 
-# data file
+# data file and datasets
 *.p
+neuroscience_dataset
+crowdsourcing_datasets

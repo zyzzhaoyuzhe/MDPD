@@ -33,6 +33,7 @@ import tensor_power as tp
 #         out = np.zeros((ncomp, nsample))
 #     return out
 
+#####################################3
 # Inference
 def log_joint_prob_fast(data, logW, logC):
     """
@@ -69,7 +70,7 @@ def mstep(logpost, data):
     newlogW = logsumexp(logpost, axis=0) - np.log(nsample)
     return newlogW, newlogC
 
-
+#####################################3
 # MDPD initialization
 def init_mv(data, feature_set):  # majority vote
     data_selected = data[:, feature_set, :]
@@ -137,14 +138,19 @@ def init_spectral(data, ncomp):
         # C.append(foo)
     return np.log(W), np.log(C)
 
+#####################################3
 # MDPD feature selection
 def MI_feature_selection(data, topN):
+    ranking, mi_score = MI_feature_ranking(data)
+    return ranking[:topN], mi_score[ranking]
+
+def MI_feature_ranking(data):
     pairwise_MI = MI_data(data)
-    score = pairwise_MI.sum(axis=(1, 3))
-    np.fill_diagonal(score, 0)
-    score = score.sum(axis=1)
-    ranking = np.argsort(score, axis=None)[::-1]
-    return ranking[:topN], score[ranking]
+    mi_score = pairwise_MI.sum(axis=(1, 3))
+    np.fill_diagonal(mi_score, 0)
+    mi_score = mi_score.sum(axis=1)
+    ranking = np.argsort(mi_score, axis=None)[::-1]
+    return ranking, mi_score
 
 
 # Mutual Information in the data conditional on the model

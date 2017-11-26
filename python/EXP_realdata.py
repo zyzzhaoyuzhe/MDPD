@@ -6,7 +6,7 @@ import time
 import signal
 import scipy.io as scio
 from scipy.sparse import coo_matrix
-from MDPD import *
+import MDPD
 import matplotlib.pyplot as plt
 import matplotlib
 
@@ -190,7 +190,8 @@ model = MDPD.MDPD()
 model.fit(train, ncomp=2, verbose=False)
 model.score(train, label)
 
-features, score = utils.MI_feature_selection(train, 10)
+
+features, score = MDPD.utils.MI_feature_selection(train, 15)
 model.fit(train, ncomp=2, verbose=False, features=features)
 model.score(train, label)
 
@@ -204,6 +205,8 @@ plt.plot(score)
 plt.ylabel('Score', fontsize=16)
 
 x_mv = range(1, 40)
+feature_rank, _ = MDPD.utils.MI_feature_ranking(train)
+
 mv_err, mvem_err, nq = fsmv_curve(feature_rank, train, train, label, x_mv, 2)
 x_spec = range(5,40)
 spec_err, _ = fsspec_curve(feature_rank, train, train, label, x_spec, 2, epoch=20)

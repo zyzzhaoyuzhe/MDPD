@@ -199,35 +199,53 @@ class MDPD_basic(object):
 
 class MDPD(MDPD_basic, object):
     def __init__(self):
-        MDPD_basic.__init__(self)
+        super(MDPD, self).__init__()
         # nsample, dim, nvocab = data.shape
         # self.nsample = nsample
         # self.dim = dim
         # self.nvocab = nvocab
         # self.ncomp = ncomp
         ## core attributes
-        self.feature_set = []
+        self.features = []
         # self.MIres = None
         ## temporary attributes
         self.lock = None
 
-    def init_topNfeatures(self, data, topN, remove_last=False):
-        self.reset(data)
-        MIcomplete = self.get_MIcomplete(data)
-        if remove_last:
-            MIcomplete = np.delete(MIcomplete, -1, axis=1)
-            MIcomplete = np.delete(MIcomplete, -1, axis=3)
-        foo = MIcomplete.sum(axis=(1, 3))
-        np.fill_diagonal(foo, 0)
-        score = foo.sum(axis=1)
-        bar = np.argsort(score, axis=None)[::-1]
-        return bar[:topN], score[bar]
+    # def init_topNfeatures(self, data, topN, remove_last=False):
+    #     """
+    #     Rank features based on mutual information scores
+    #     :param data:
+    #     :param topN:
+    #     :param remove_last:
+    #     :return:
+    #     """
+    #     self.reset(data)
+    #     MIcomplete = self.get_MIcomplete(data)
+    #     if remove_last:
+    #         MIcomplete = np.delete(MIcomplete, -1, axis=1)
+    #         MIcomplete = np.delete(MIcomplete, -1, axis=3)
+    #     foo = MIcomplete.sum(axis=(1, 3))
+    #     np.fill_diagonal(foo, 0)
+    #     score = foo.sum(axis=1)
+    #     bar = np.argsort(score, axis=None)[::-1]
+    #     return bar[:topN], score[bar]
 
     def fit(self, data, ncomp,
-            features=None,
-            init="majority", init_label=None, init_para=None,
-            niter=30,
-            verbose=True):
+            features=None, init="majority",
+            init_label=None, init_para=None,
+            niter=30, verbose=True):
+        """
+        Fit the model to training data.
+        :param data: numpy array, shape = (nsample, dim, nvocab)
+        :param ncomp: int, number of components
+        :param features: list of ints, selected features
+        :param init:
+        :param init_label:
+        :param init_para:
+        :param niter:
+        :param verbose:
+        :return:
+        """
         nsample, dim, nvocab = data.shape
         logger.info(
             "Training an MDPD with dimension %i, sample size %i, vocab size %i and the target number of components %i",
@@ -235,26 +253,53 @@ class MDPD(MDPD_basic, object):
         if init:
             self.dim, self.nvocab = dim, nvocab
             self.ncomp = ncomp
-        self.feature_set = features if features is not None else range(dim)
+        self.features = features if features is not None else range(dim)
         # choose initialization method
         if sum(map(bool, [init, init_label, init_para])) != 1:
             raise ValueError('Use one and only one of init, init_label, init_para.')
         if init == "majority":
-            self.logW, self.logC = utils.init_mv(data, self.feature_set)
+            self.logW, self.logC = utils.init_mv(data, self.features)
         elif init == "random":
             self.logW, self.logC = utils.init_random(self.dim, self.ncomp, self.nvocab)
         elif init == "spectral":
             self.logW, self.logC = utils.init_spectral(data, self.ncomp)
         if init_label:
-            self.logW, self.logC = utils.mstep(init_label, data[:, self.feature_set, :])
+            self.logW, self.logC = utils.mstep(init_label, data[:, self.features, :])
         if init_para:
             self.logW, self.logC = init_para
         # statistics
+        self._em_iterations(data, niter, verbose=verbose)
+        # for count in xrange(niter):
+        #     self.EM(data)
+        #     if verbose:
+        #         logger.info("iteration %d; log-likelihood %f;", count, self.log_likelihood(data))
+
+    def _em(self, data):
+        """
+        One step EM iteration
+        :param data:
+        :return:
+        """
+        data_selected = data[:, self.features, :]
+        lock = self.lock
+        # E-step
+        logpost = self.log_posterior(data)
+        # M-step (full M-step)
+        newlogW, newlogC = utils.mstep(logpost, data_selected)
+        if np.any(lock == 0):
+            newlogC[lock == 0] = -100
+            self.logC[lock == 1] = -100
+            newlogC = newlogC - logsumexp(newlogC, axis=1)[:, np.newaxis, :] \
+                      + np.log(1 - np.exp(logsumexp(self.logC, axis=1)))[:, np.newaxis, :]
+            newlogC[lock == 0] = self.logC[lock == 0]
+        self.logW = newlogW
+        self.logC = newlogC
+
+    def _em_iterations(self, data, niter, verbose=False):
         for count in xrange(niter):
-            self.EM(data)
+            self._em(data)
             if verbose:
                 logger.info("iteration %d; log-likelihood %f;", count, self.log_likelihood(data))
-
         # count = 0
         #
         # while True:
@@ -279,11 +324,18 @@ class MDPD(MDPD_basic, object):
 
 
     # fine tune
-    def refine(self, data, infoset=None, niter=20):
+    def refine(self, data, features=None, niter=20):
+        """
+        Fine tune the model
+        :param data:
+        :param features:
+        :param niter:
+        :return:
+        """
         logger.info('Fine tune the model with ')
-        infoset = infoset or range(self.dim)
-        for count in range(niter):
-            self.EM(data, infoset)
+        foo, self.features = self.features, features or range(self.dim)
+        self._em_iterations(data, niter, verbose=False)
+        self.features = foo
 
     # # split component
     # def split(self, data, cord1, cord2, comp):
@@ -326,50 +378,35 @@ class MDPD(MDPD_basic, object):
     #     add(self.logC, self.lock, cord2, -1, -dp2 * stepsize)
 
     ## EM step
-    def EM(self, data):
-        #
-        data_selected = data[:, self.feature_set, :]
-        lock = self.lock
-        # E-step
-        logpost = self.log_posterior(data)
-        # M-step (full M-step)
-        newlogW, newlogC = utils.mstep(logpost, data_selected)
-        if np.any(lock == 0):
-            newlogC[lock == 0] = -100
-            self.logC[lock == 1] = -100
-            newlogC = newlogC - logsumexp(newlogC, axis=1)[:, np.newaxis, :] \
-                      + np.log(1 - np.exp(logsumexp(self.logC, axis=1)))[:, np.newaxis, :]
-            newlogC[lock == 0] = self.logC[lock == 0]
-        self.logW = newlogW
-        self.logC = newlogC
+
 
     # def get_MIcomplete(self, data):
     #     return get_MIcomplete(data)
 
     ## get mutual inforamtion conditional on component (m-m-n-c)
     def get_MIres(self, data, rm_diag=False, wPMI=False):
-        data_select = data[:, self.feature_set, :]
+        data_select = data[:, self.features, :]
         logpost = self.log_posterior(data)
-        return utils.MIres_fast(data_select, logpost, rm_diag=rm_diag, wPMI=wPMI)
+        return utils.MIres_fast(data_select, logpost, rm_diag=rm_diag, weighted=wPMI)
 
     # ## get MI
     # def get_MI(self, data, rm_diag=False, subset=None):
     #     return get_MI(data, self.logW, self.logC, subset or self.feature_set, rm_diag=rm_diag)
 
     def log_likelihood(self, data):
-        data_selected = data[:, self.feature_set, :]
+        data_selected = data[:, self.features, :]
         return MDPD_basic.log_likelihood(self, data_selected)
 
     def log_posterior(self, data):
-        data_selected = data[:, self.feature_set, :]
+        data_selected = data[:, self.features, :]
         return MDPD_basic.log_posterior(self, data_selected)
 
     def predict(self, data):
-        data_selected = data[:, self.feature_set, :]
+        data_selected = data[:, self.features, :]
         return MDPD_basic.predict(self, data_selected)
 
     def score(self, data, label):
-        data_selected = data[:, self.feature_set, :]
+        data_selected = data[:, self.features, :]
         return MDPD_basic.score(self, data_selected, label)
 
 
@@ -414,23 +451,34 @@ class MDPD(MDPD_basic, object):
     #     self.logC[:, :, idx1] = self.logC[:, :, idx2]
     #     self.logC[:, :, idx2] = foo
 
-    def align(self, data, label, subset):
-        pred, err = self.predict(data, label, subset=subset)
-        logW = self.logW
-        logC = self.logC
+    def align(self, data, label, features=None):
+        """
+
+        :param data:
+        :param label:
+        :param features:
+        :return:
+        """
+        features = features or self.features
+        data_selected = data[:, features, :]
+        # pred = self.predict(data_selected)
+        # acc = self.score(data_selected, label)
+        oldlogW = self.logW
+        oldlogC = self.logC
         best_order = None
-        best_score = 1
+        best_acc = 0
         for order in itertools.permutations(range(self.ncomp)):
             order = list(order)
             self.reorder(order)
-            _, err = self.predict(data, label, subset=subset)
-            if err < best_score:
+            acc = self.score(data_selected, label)
+            # _, err = self.predict(data, label)
+            if acc > best_acc:
                 best_order = order
-                best_score = err
+                best_acc = acc
             # restore
-            self.logW = logW
-            self.logC = logC
+            self.logW, self.logC = oldlogW, oldlogC
         # print order
+        logger.info('Swap the components by {}.'.format(best_order))
         self.reorder(best_order)
 
     # def add_infoset(self, input):
@@ -441,7 +489,7 @@ class MDPD(MDPD_basic, object):
         if filename[-2:] != '.p':
             filename += '.p'
         tbs = self._get_tbs()
-        tbs['activeset'] = self.feature_set
+        tbs['features'] = self.features
         with open(filename, 'wb') as f:
             cPickle.dump(tbs, f)
 
@@ -452,7 +500,7 @@ class MDPD(MDPD_basic, object):
         with open(filename, 'rb') as f:
             tbl = cPickle.load(f)
             self._load(tbl)
-            self.feature_set = tbl['activeset']
+            self.features = tbl['features']
 
     # def merge(self, cord_list):
     #     """
