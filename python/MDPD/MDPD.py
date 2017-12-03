@@ -75,6 +75,7 @@ class MDPD_basic(object):
         else:
             acc = sum(pred - label == 0) / label.size
             logger.info('ACCURACY: {0:.2%}'.format(acc))
+            return acc
 
     def reorder(self, order):
         """Perform label swap according to 'order'."""
@@ -200,35 +201,8 @@ class MDPD_basic(object):
 class MDPD(MDPD_basic, object):
     def __init__(self):
         super(MDPD, self).__init__()
-        # nsample, dim, nvocab = data.shape
-        # self.nsample = nsample
-        # self.dim = dim
-        # self.nvocab = nvocab
-        # self.ncomp = ncomp
-        ## core attributes
         self.features = []
-        # self.MIres = None
-        ## temporary attributes
         self.lock = None
-
-    # def init_topNfeatures(self, data, topN, remove_last=False):
-    #     """
-    #     Rank features based on mutual information scores
-    #     :param data:
-    #     :param topN:
-    #     :param remove_last:
-    #     :return:
-    #     """
-    #     self.reset(data)
-    #     MIcomplete = self.get_MIcomplete(data)
-    #     if remove_last:
-    #         MIcomplete = np.delete(MIcomplete, -1, axis=1)
-    #         MIcomplete = np.delete(MIcomplete, -1, axis=3)
-    #     foo = MIcomplete.sum(axis=(1, 3))
-    #     np.fill_diagonal(foo, 0)
-    #     score = foo.sum(axis=1)
-    #     bar = np.argsort(score, axis=None)[::-1]
-    #     return bar[:topN], score[bar]
 
     def fit(self, data, ncomp,
             features=None, init="majority",
@@ -269,10 +243,7 @@ class MDPD(MDPD_basic, object):
             self.logW, self.logC = init_para
         # statistics
         self._em_iterations(data, niter, verbose=verbose)
-        # for count in xrange(niter):
-        #     self.EM(data)
-        #     if verbose:
-        #         logger.info("iteration %d; log-likelihood %f;", count, self.log_likelihood(data))
+
 
     def _em(self, data):
         """

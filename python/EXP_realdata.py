@@ -6,7 +6,7 @@ import time
 import signal
 import scipy.io as scio
 from scipy.sparse import coo_matrix
-import MDPD
+from MDPD import *
 import matplotlib.pyplot as plt
 import matplotlib
 
@@ -28,14 +28,6 @@ def missing_heatmap(train):
 def fsmv_curve(feature_rank, train, test, label, f_range, ncomp, niter=50):
     """
     Accuracy curve for feature selection majority vote (scan # of featuers)
-    :param feature_rank:
-    :param train:
-    :param test:
-    :param label:
-    :param f_range:
-    :param ncomp:
-    :param niter:
-    :return:
     """
     mv_err = []
     mvem_err = []
@@ -51,19 +43,19 @@ def fsmv_curve(feature_rank, train, test, label, f_range, ncomp, niter=50):
         valid_sample = test_selected.sum(axis=(1,2)) > 0
         nquestion.append(sum(valid_sample == True))
         test_selected = test_selected[valid_sample, :]
-        label_info = label[valid_sample]
+        label_selected = label[valid_sample]
         # majority vote
         model = MDPD.MDPD()
-        model.fit(train_selected, ncomp, init='majority', niter=niter)
-        _, err = model.predict(test_selected, label_info, subset=range(model.dim))
-        _, err_mv = mv_predictor(test_selected, label_info)
-        err *= len(label_info)
-        err += (test.shape[0] - nquestion[-1]) * (test.shape[2] - 1) / test.shape[2]
-        err /= len(label)
-        err_mv *= len(label_info)
+        model.fit(train_selected, ncomp=ncomp, init='majority', niter=niter)
+        acc = model.score(test_selected, label_selected)
+        _, err_mv = mv_predictor(test_selected, label_selected)
+        acc *= len(label_selected)
+        acc += (test.shape[0] - nquestion[-1]) * (test.shape[2] - 1) / test.shape[2]
+        acc /= len(label)
+        err_mv *= len(label_selected)
         err_mv += (test.shape[0] - nquestion[-1]) * (test.shape[2] - 1) / test.shape[2]
         err_mv /= len(label)
-        mvem_err.append(err)
+        mvem_err.append(1 - acc)
         mv_err.append(err_mv)
     return mv_err, mvem_err, nquestion
 
@@ -73,29 +65,29 @@ def fsspec_curve(feature_rank, train, test, label, f_range, ncomp, niter=50, epo
     nquestion = []
     for nfeatures in f_range:
         # feature selection
-        infoset = feature_rank[:nfeatures]
-        print len(infoset)
-        train_info = train[:, infoset, :]
-        valid_sample = train_info.sum(axis=(1, 2)) > 0
-        train_info = train_info[valid_sample, :]
-        test_info = test[:, infoset, :]
-        valid_sample = test_info.sum(axis=(1,2)) > 0
+        features = feature_rank[:nfeatures]
+        print len(features)
+        train_selected = train[:, features, :]
+        valid_sample = train_selected.sum(axis=(1, 2)) > 0
+        train_selected = train_selected[valid_sample, :]
+        test_selected = test[:, features, :]
+        valid_sample = test_selected.sum(axis=(1,2)) > 0
         nquestion.append(sum(valid_sample == True))
-        test_info = test_info[valid_sample, :]
-        label_info = label[valid_sample]
+        test_selected = test_selected[valid_sample, :]
+        label_selected = label[valid_sample]
         # spectral em
         foo = []
-        model = MDPD.MDPD(train_info, ncomp)
+        model = MDPD.MDPD()
         for _ in xrange(epoch):
             try:
                 signal.alarm(90)
-                model.fit(train_info, init='spectral', niter=niter)
-                model.align(test_info, label_info, range(model.dim))
-                _, err = model.predict(test_info, label_info, subset=range(model.dim))
-                err *= len(label_info)
-                err += (test.shape[0] - nquestion[-1]) * (test.shape[2] - 1) / test.shape[2]
-                err /= len(label)
-                foo.append(err)
+                model.fit(train_selected, ncomp, init='spectral', niter=niter)
+                model.align(test_selected, label_selected, range(model.dim))
+                acc = model.score(test_selected, label_selected)
+                acc *= len(label_selected)
+                acc += (test.shape[0] - nquestion[-1]) * (test.shape[2] - 1) / test.shape[2]
+                acc /= len(label)
+                foo.append(1 - acc)
             except:
                 pass
             signal.alarm(0)
@@ -125,6 +117,7 @@ def mv_predictor(train, label):
         return rank[0, :], err / len(label)
 
 def indi_rank(test, label):
+    # rank features based on their own performance
     ans = np.argsort(test, axis=2)[:, :, ::-1]
     error = [0] * test.shape[1]
     for i in xrange(test.shape[1]):
@@ -177,15 +170,8 @@ label = read_label(os.path.join(folder, 'bluebird_truth.txt'))
 
 
 
-# filename = '/media/vincent/Data/Dataset/Bluebird/cubam-public/demo/bluebirds/data.mat'
-# mat = scio.loadmat(filename)
-# label = np.asarray(mat['label']).flatten()-1
-# train = mat['z']
-# train = np.moveaxis(train, [0, 1, 2], [2, 0, 1])
-# nsample, dim, nvocab = train.shape
-# train_pad = train
-
 ########## to generate ICML figure wrapper
+
 model = MDPD.MDPD()
 model.fit(train, ncomp=2, verbose=False)
 model.score(train, label)
@@ -204,28 +190,33 @@ plt.plot(score)
 # plt.title('Mutual Information Score (eq 1)', fontsize=20)
 plt.ylabel('Score', fontsize=16)
 
-x_mv = range(1, 40)
+x_range = range(1, 40)
 feature_rank, _ = MDPD.utils.MI_feature_ranking(train)
+mv_err, mvem_err, nq = fsmv_curve(feature_rank, train, train, label, x_range, 2)
 
-mv_err, mvem_err, nq = fsmv_curve(feature_rank, train, train, label, x_mv, 2)
-x_spec = range(5,40)
-spec_err, _ = fsspec_curve(feature_rank, train, train, label, x_spec, 2, epoch=20)
+
+
+x_range = range(5, 40)
+spec_err, _ = fsspec_curve(feature_rank, train, train, label,
+                           x_range, 2, epoch=2)
 
 med_spec = np.median(spec_err, axis=1)
 med_low = np.percentile(spec_err, 25, axis=1)
 med_hi = np.percentile(spec_err, 75, axis=1)
 
-plt.figure(figsize=(8,5))
-plt.plot(x_spec, med_spec)
-plt.fill_between(x_spec, med_low, med_hi, facecolor='blue', alpha=0.2, interpolate=True)
+plt.figure(figsize=(8, 5))
+plt.plot(x_range, med_spec)
+plt.fill_between(x_range, med_low, med_hi, facecolor='blue', alpha=0.2, interpolate=True)
 
-plt.plot(x_mv, mv_err)
-plt.plot(x_mv, mvem_err)
+x_range = range(1, 40)
+plt.plot(x_range, mv_err)
+plt.plot(x_range, mvem_err)
 
-feature_rank = indi_rank(train, label)
-x_mv, mv_err, mvem_err, nq = fsmv_curve(feature_rank, train, train, label, 1, 39, 2)
-plt.plot(x_mv, mv_err, '--')
-plt.plot(x_mv, mvem_err, '--')
+feature_rank, _ = indi_rank(train, label)
+x_range = range(1, 40)
+mv_err, mvem_err, _ = fsmv_curve(feature_rank, train, train, label, x_range, 2)
+plt.plot(x_range, mv_err, '--')
+plt.plot(x_range, mvem_err, '--')
 
 plt.title('Bird Dataset', fontsize=20)
 plt.ylabel('mis-clustering rate (%)', fontsize=16)
@@ -233,110 +224,50 @@ plt.xlabel('# of features (workers)', fontsize=16)
 plt.legend(['opt-D&S', 'MV', 'MV+EM', r'MV*' , r'MV+EM*'])
 
 
-## figure 2
-model = MDPD.MDPD(train_pad, 2)
-feature_rank1 = model.init_topNfeatures(train_pad, model.dim)
+########## Dog
+# file = '/media/vincent/Data/Dataset/dog/data.mat'
+# mat = scio.loadmat(file)
+# label = np.asarray(mat['label']).squeeze()-1
+# train = mat['z']
+# train = np.moveaxis(train, [0, 1, 2], [2, 0, 1])
+# train = train[:, :, :]
+# train_pad = np.append(train, (1 - train.sum(axis=2))[:, :, np.newaxis], axis=2)
 
-
-plt.figure(figsize=(8,5))
-x_mv, mv_err, mvem_err, nq = fsmv_curve(feature_rank1, train, train, label, 1, 39, 2)
-plt.plot(x_mv, mv_err)
-plt.plot(x_mv, mvem_err)
-x_mv, mv_err, mvem_err, nq = fsmv_curve(feature_rank2, train, train, label, 1, 39, 2)
-
-plt.plot(x_mv, mv_err)
-plt.plot(x_mv, mvem_err)
-plt.title('Bird Dataset')
-plt.ylabel('mis-clustering rate (%)')
-plt.xlabel('# of features (workers)')
-plt.legend(['MV', 'MV+EM', 'MV(cheat)', 'MV+EM(cheat)'])
-
-# random permutation
-# for i in range(dim):
-#     idx = np.random.permutation(2)
-#     data[:, i, :] = data[:, i, idx]
-
-# stagewise EM
-model = MDPD.MDPD(train, 2)
-output = model.fit(train, init="StageEM", niter=30)
-model.align(train, label, range(model.dim))
-model.predict(train, label, subset=range(model.dim))
-model.refine(train)
-model.predict(train, label, subset=range(model.dim))
-
-# spec
-model = MDPD.MDPD(train, 2)
-model.fit(train, init="spectral", niter=2)
-model.predict(train, label, subset=range(model.dim))
-
-# spec with infoset
-model = MDPD.MDPD(train_pad, 2)
-feature_rank = model.init_topNfeatures(train_pad, model.dim)
-
-infoset = feature_rank[:20]
-infoset_size = len(infoset)
-print len(infoset)
-train_info = train[:, infoset, :]
-# random infoset
-infoset = np.random.permutation(model.dim)[:infoset_size]
-print len(infoset)
-train_info = train[:, infoset, :]
-
-model = MDPD.MDPD(train_info, 2)
-model.fit(train_info, init='spectral', niter=10)
-model.predict(train_info, label, subset=range(model.dim))
-
-# majority vote
-model = MDPD.MDPD(train, 2)
-model.fit(train, init='majority', niter=20)
-model.predict(train, label, subset=range(model.dim))
-mv_predictor(train, label)
-# print sum(train.sum(axis=1).argmax(axis=1) - label!=0) / len(label)
-
-# majority vote with infoset
-model = MDPD.MDPD(train_info, 2)
-model.fit(train_info, init='majority', niter=20)
-model.predict(train_info, label, subset=range(model.dim))
-mv_predictor(train_info, label)
-
-
-### Dog
-file = '/media/vincent/Data/Dataset/dog/data.mat'
-mat = scio.loadmat(file)
-label = np.asarray(mat['label']).squeeze()-1
-train = mat['z']
-train = np.moveaxis(train, [0, 1, 2], [2, 0, 1])
-train = train[:, :, :]
+folder = '/home/vincent/Documents/Research/MDPD/crowdsourcing_datasets/dog'
+train = read_data(os.path.join(folder, 'dog_crowd.txt'))
+label = read_label(os.path.join(folder, 'dog_truth.txt'))
 train_pad = np.append(train, (1 - train.sum(axis=2))[:, :, np.newaxis], axis=2)
-
 
 ########## to generate ICML figure wrapper
 model = MDPD.MDPD(train_pad, 4)
+feature_rank, _ = MDPD.utils.MI_feature_selection(train, 15)
+
+
 feature_rank, vals = model.init_topNfeatures(train_pad, model.dim, remove_last=False)
 
 plt.figure(figsize=(8, 2))
 plt.plot(vals)
 plt.ylabel('Score', fontsize=16)
 
-x_mv = range(1, 110)
-mv_err_algo, mvem_err_algo, _ = fsmv_curve(feature_rank, train, train, label, x_mv, 4)
+x_range = range(1, 110)
+mv_err_algo, mvem_err_algo, _ = fsmv_curve(feature_rank, train, train, label, x_range, 4)
 
-x_spec = range(10, 110)
-spec_err, _ = fsspec_curve(feature_rank, train, train, label, x_spec, 4, epoch=20)
+x_range = range(10, 110)
+spec_err, _ = fsspec_curve(feature_rank, train, train, label, x_range, 4, epoch=20)
 med_spec = np.median(spec_err, axis=1)
 med_low = np.percentile(spec_err, 25, axis=1)
 med_hi = np.percentile(spec_err, 75, axis=1)
 
 feature_rank, _ = indi_rank(train, label)
-mv_err_bench, mvem_err_bench, nq = fsmv_curve(feature_rank, train, train, label, x_mv, 4)
+mv_err_bench, mvem_err_bench, nq = fsmv_curve(feature_rank, train, train, label, x_range, 4)
 
 plt.figure(figsize=[8,5])
-plt.plot(x_spec, med_spec)
-plt.fill_between(x_spec, med_low, med_hi, facecolor='blue', alpha=0.2, interpolate=True)
-plt.plot(x_mv, mv_err_algo)
-plt.plot(x_mv, mvem_err_algo)
-plt.plot(x_mv, mv_err_bench, '--')
-plt.plot(x_mv, mvem_err_bench, '--')
+plt.plot(x_range, med_spec)
+plt.fill_between(x_range, med_low, med_hi, facecolor='blue', alpha=0.2, interpolate=True)
+plt.plot(x_range, mv_err_algo)
+plt.plot(x_range, mvem_err_algo)
+plt.plot(x_range, mv_err_bench, '--')
+plt.plot(x_range, mvem_err_bench, '--')
 
 plt.title('Dog Dataset',fontsize=20)
 plt.ylabel('mis-clustering rate (%)',fontsize=16)
@@ -351,12 +282,12 @@ feature_rank1 = model.init_topNfeatures(train_pad, model.dim)
 feature_rank2 = indi_rank(train, label)
 
 plt.figure(figsize=(8,5))
-x_mv, mv_err, mvem_err, nq = fsmv_curve(feature_rank1, train, train, label, 1, 109, 4)
-plt.plot(x_mv, mv_err)
-plt.plot(x_mv, mvem_err)
-x_mv, mv_err, mvem_err, nq = fsmv_curve(feature_rank2, train, train, label, 1, 109, 4)
-plt.plot(x_mv, mv_err, '--')
-plt.plot(x_mv, mvem_err, '--')
+x_range, mv_err, mvem_err, nq = fsmv_curve(feature_rank1, train, train, label, 1, 109, 4)
+plt.plot(x_range, mv_err)
+plt.plot(x_range, mvem_err)
+x_range, mv_err, mvem_err, nq = fsmv_curve(feature_rank2, train, train, label, 1, 109, 4)
+plt.plot(x_range, mv_err, '--')
+plt.plot(x_range, mvem_err, '--')
 plt.title('Dog Dataset')
 plt.ylabel('mis-clustering rate (%)')
 plt.ylim([0.14, 0.22])
@@ -459,26 +390,26 @@ plt.figure(figsize=(8, 2))
 plt.plot(vals)
 plt.ylabel('Score', fontsize=16)
 
-x_mv = range(1, 165)
-mv_err_algo, mvem_err_algo, _ = fsmv_curve(feature_rank, train, train, label, x_mv, 2)
+x_range = range(1, 165)
+mv_err_algo, mvem_err_algo, _ = fsmv_curve(feature_rank, train, train, label, x_range, 2)
 
-x_spec = range(10, 165)
-spec_err, _ = fsspec_curve(feature_rank, train, train, label, x_spec, 2, epoch=20)
+x_range = range(10, 165)
+spec_err, _ = fsspec_curve(feature_rank, train, train, label, x_range, 2, epoch=20)
 med_spec = np.median(spec_err, axis=1)
 med_low = np.percentile(spec_err, 25, axis=1)
 med_hi = np.percentile(spec_err, 75, axis=1)
 
 feature_rank, _ = indi_rank(train, label)
-mv_err_bench, mvem_err_bench, nq = fsmv_curve(feature_rank, train, train, label, x_mv, 2)
+mv_err_bench, mvem_err_bench, nq = fsmv_curve(feature_rank, train, train, label, x_range, 2)
 
 
 plt.figure(figsize=(8,5))
-plt.plot(x_spec, med_spec)
-plt.fill_between(x_spec, med_low, med_hi, facecolor='blue', alpha=0.2, interpolate=True)
-plt.plot(x_mv, mv_err_algo)
-plt.plot(x_mv, mvem_err_algo)
-plt.plot(x_mv, mv_err_bench, '--')
-plt.plot(x_mv, mvem_err_bench, '--')
+plt.plot(x_range, med_spec)
+plt.fill_between(x_range, med_low, med_hi, facecolor='blue', alpha=0.2, interpolate=True)
+plt.plot(x_range, mv_err_algo)
+plt.plot(x_range, mvem_err_algo)
+plt.plot(x_range, mv_err_bench, '--')
+plt.plot(x_range, mvem_err_bench, '--')
 
 plt.title('RTE Dataset', fontsize=20)
 plt.ylabel('mis-clustering rate (%)', fontsize=16)
@@ -492,12 +423,12 @@ feature_rank1 = model.init_topNfeatures(train_pad, model.dim)
 feature_rank2 = indi_rank(train, label)
 
 plt.figure(figsize=(8,5))
-x_mv, mv_err, mvem_err, nq = fsmv_curve(feature_rank1, train, train, label, 1, 164, 2)
-plt.plot(x_mv, mv_err)
-plt.plot(x_mv, mvem_err)
-x_mv, mv_err, mvem_err, nq = fsmv_curve(feature_rank2, train, train, label, 1, 164, 2)
-plt.plot(x_mv, mv_err, '--')
-plt.plot(x_mv, mvem_err, '--')
+x_range, mv_err, mvem_err, nq = fsmv_curve(feature_rank1, train, train, label, 1, 164, 2)
+plt.plot(x_range, mv_err)
+plt.plot(x_range, mvem_err)
+x_range, mv_err, mvem_err, nq = fsmv_curve(feature_rank2, train, train, label, 1, 164, 2)
+plt.plot(x_range, mv_err, '--')
+plt.plot(x_range, mvem_err, '--')
 plt.title('RTE Dataset')
 plt.ylabel('mis-clustering rate (%)')
 plt.ylim([0.06, 0.2])
@@ -586,26 +517,26 @@ plt.figure(figsize=(8, 2))
 plt.plot(vals)
 plt.ylabel('Score', fontsize=16)
 
-x_spec = range(30, 762, 5)
-spec_err, _ = fsspec_curve(feature_rank, train, test, label, x_spec, 2, epoch=20, niter=10)
+x_range = range(30, 762, 5)
+spec_err, _ = fsspec_curve(feature_rank, train, test, label, x_range, 2, epoch=20, niter=10)
 
 med_spec = np.median(spec_err, axis=1)
 med_low = np.percentile(spec_err, 25, axis=1)
 med_hi = np.percentile(spec_err, 75, axis=1)
 
 plt.figure(figsize=(8,5))
-plt.plot(x_spec, med_spec)
-plt.fill_between(x_spec, med_low, med_hi, facecolor='blue', alpha=0.2, interpolate=True)
+plt.plot(x_range, med_spec)
+plt.fill_between(x_range, med_low, med_hi, facecolor='blue', alpha=0.2, interpolate=True)
 
-x_mv = range(1, 762)
-mv_err_algo, mvem_err_algo, nq = fsmv_curve(feature_rank, train, test, label, x_mv, 2)
-plt.plot(x_mv, mv_err_algo)
-plt.plot(x_mv, mvem_err_algo)
+x_range = range(1, 762)
+mv_err_algo, mvem_err_algo, nq = fsmv_curve(feature_rank, train, test, label, x_range, 2)
+plt.plot(x_range, mv_err_algo)
+plt.plot(x_range, mvem_err_algo)
 
 feature_rank, errs = indi_rank(test, label)
-mv_err_bench, mvem_err_bench, nq = fsmv_curve(feature_rank, train, test, label, x_mv, 2)
-plt.plot(x_mv, mv_err_bench, '--')
-plt.plot(x_mv, mvem_err_bench, '--')
+mv_err_bench, mvem_err_bench, nq = fsmv_curve(feature_rank, train, test, label, x_range, 2)
+plt.plot(x_range, mv_err_bench, '--')
+plt.plot(x_range, mvem_err_bench, '--')
 
 plt.title('TREC Dataset', fontsize=20)
 plt.ylabel('mis-clustering rate (%)', fontsize=16)
@@ -685,8 +616,8 @@ plt.figure(figsize=(8, 2))
 plt.plot(vals)
 plt.ylabel('Score', fontsize=16)
 
-x_spec = range(10, 178)
-spec_err, _ = fsspec_curve(feature_rank, train, train, label, x_spec, 5, epoch=20, niter=100)
+x_range = range(10, 178)
+spec_err, _ = fsspec_curve(feature_rank, train, train, label, x_range, 5, epoch=20, niter=100)
 
 med_spec = map(np.median, spec_err)
 med_low = map(lambda x: np.percentile(x, 25), spec_err)
@@ -694,18 +625,18 @@ med_hi = map(lambda x: np.percentile(x, 75), spec_err)
 
 
 plt.figure(figsize=(8,5))
-plt.plot(x_spec, med_spec)
-plt.fill_between(x_spec, med_low, med_hi, facecolor='blue', alpha=0.2, interpolate=True)
+plt.plot(x_range, med_spec)
+plt.fill_between(x_range, med_low, med_hi, facecolor='blue', alpha=0.2, interpolate=True)
 
-x_mv = range(1, 178)
-mv_err, mvem_err, _ = fsmv_curve(feature_rank, train, train, label, x_mv, 5, niter=100)
-plt.plot(x_mv, mv_err)
-plt.plot(x_mv, mvem_err)
+x_range = range(1, 178)
+mv_err, mvem_err, _ = fsmv_curve(feature_rank, train, train, label, x_range, 5, niter=100)
+plt.plot(x_range, mv_err)
+plt.plot(x_range, mvem_err)
 
 feature_rank = indi_rank(train, label)
-mv_err, mvem_err, _ = fsmv_curve(feature_rank, train, train, label, x_mv, 5, niter=100)
-plt.plot(x_mv, mv_err, '--')
-plt.plot(x_mv, mvem_err, '--')
+mv_err, mvem_err, _ = fsmv_curve(feature_rank, train, train, label, x_range, 5, niter=100)
+plt.plot(x_range, mv_err, '--')
+plt.plot(x_range, mvem_err, '--')
 
 plt.title('Web Dataset', fontsize=20)
 plt.ylabel('mis-clustering rate (%)', fontsize=16)
@@ -721,12 +652,12 @@ feature_rank1 = model.init_topNfeatures(train_pad, model.dim)
 feature_rank2 = indi_rank(train, label)
 
 plt.figure(figsize=(8,5))
-x_mv, mv_err, mvem_err, nq = fsmv_curve(feature_rank1, train, train, label, 1, 177, 5, niter=100)
-plt.plot(x_mv, mv_err)
-plt.plot(x_mv, mvem_err)
-x_mv, mv_err, mvem_err, nq = fsmv_curve(feature_rank2, train, train, label, 1, 177, 5, niter=100)
-plt.plot(x_mv, mv_err, '--')
-plt.plot(x_mv, mvem_err, '--')
+x_range, mv_err, mvem_err, nq = fsmv_curve(feature_rank1, train, train, label, 1, 177, 5, niter=100)
+plt.plot(x_range, mv_err)
+plt.plot(x_range, mvem_err)
+x_range, mv_err, mvem_err, nq = fsmv_curve(feature_rank2, train, train, label, 1, 177, 5, niter=100)
+plt.plot(x_range, mv_err, '--')
+plt.plot(x_range, mvem_err, '--')
 plt.title('Web Dataset')
 plt.ylabel('mis-clustering rate (%)')
 plt.ylim([0.05, 0.3])
