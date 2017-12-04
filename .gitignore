@@ -100,3 +100,7 @@ ENV/
 *.p
 neuroscience_dataset
 crowdsourcing_datasets
+
+
+# Mac 
+.DS_Store
