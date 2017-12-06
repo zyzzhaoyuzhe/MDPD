@@ -30,9 +30,9 @@ def image_saver(queue):
         count += 1
 
 #
-WINDOW = 100
-STRIDE = 10
-MAX = 0
+WINDOW = 500
+STRIDE = 1
+MAX = 0.5
 
 images = Queue()
 
@@ -43,9 +43,11 @@ t.start()
 for frame in xrange(0, ntime - WINDOW, STRIDE):
     img = utils.MI_data(data[frame:frame + WINDOW, :, :]).sum(axis=(1, 3))
     np.fill_diagonal(img, 0)
-    MAX = max(img.max(), MAX)
-    img_uint8 = img / img.max() * 255
+    # print img.max()
+    # MAX = max(img.max(), MAX)
+    img_uint8 = img / MAX * 255
+    img_uint8 = np.clip(img_uint8, 0, 255)
     images.put(img_uint8)
 images.put(None)
-print MAX
+# print MAX
 t.join()
