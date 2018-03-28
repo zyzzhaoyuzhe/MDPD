@@ -62,7 +62,10 @@ def mstep(logpost, data):
     nsample, dim, nvocab = data.shape
     # update C
     post = np.exp(logpost)
-    newlogC = np.log(np.tensordot(data, post, axes=(0, 0))) - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
+    # a better implementation
+    newlogC = logsumexp(logpost[:, np.newaxis, np.newaxis, :], axis=0, b=data[..., np.newaxis]) - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
+    # old implementation
+    # newlogC = np.log(np.tensordot(data, post, axes=(0, 0))) - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
     # if turn log(0) to -100
     newlogC[np.isinf(newlogC)] = -100
     newlogC -= logsumexp(newlogC, axis=1)[:, np.newaxis, :]

@@ -7,8 +7,11 @@ import signal
 import scipy.io as scio
 from scipy.sparse import coo_matrix
 from MDPD import *
+from MDPD.readers import *
 import matplotlib.pyplot as plt
 import matplotlib
+#
+
 
 def handle(signum, frame):
     raise Exception('end of time')
@@ -133,40 +136,10 @@ def indi_rank(test, label):
                 error[i] += k / (k + 1)
     return np.argsort(error), sorted(error)
 
-##### read data
-def read_data(file):
-    with open(file, 'r') as h:
-        cache = []
-        j_max, i_max, label_max = 0, 0, 0
-        for line in h:
-            j, i, label = map(lambda x: int(x) - 1, line.strip().split('\t'))
-            j_max = max(j_max, j+1)
-            i_max = max(i_max, i+1)
-            label_max = max(label_max, label+1)
-            cache.append((j, i, label))
-        output = np.zeros([j_max, i_max, label_max], dtype=np.int)
-        for j, i, label in cache:
-            output[j, i, label] = 1
-    return output
-
-def read_label(file):
-    with open(file, 'r') as h:
-        cache = []
-        j_max, l_max = 0, 0
-        for line in h:
-            j, l = map(lambda x: int(x) - 1, line.strip().split('\t'))
-            j_max = max(j_max, j+1)
-            l_max = max(l_max, l+1)
-            cache.append((j, l))
-        output = np.zeros(j_max, dtype=np.int)
-        for j, l in cache:
-            output[j] = l
-    return output
-
 ### Bird data
-folder = '/home/vincent/Documents/Research/MDPD/crowdsourcing_datasets/bird'
-train = read_data(os.path.join(folder, 'bluebird_crowd.txt'))
-label = read_label(os.path.join(folder, 'bluebird_truth.txt'))
+folder = '/media/vzhao/Data/crowdsourcing_datasets/bird'
+train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'bluebird_crowd.txt'))
+label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'bluebird_truth.txt'))
 
 
 
@@ -234,8 +207,8 @@ plt.legend(['opt-D&S', 'MV', 'MV+EM', r'MV*' , r'MV+EM*'])
 # train_pad = np.append(train, (1 - train.sum(axis=2))[:, :, np.newaxis], axis=2)
 
 folder = '/home/vincent/Documents/Research/MDPD/crowdsourcing_datasets/dog'
-train = read_data(os.path.join(folder, 'dog_crowd.txt'))
-label = read_label(os.path.join(folder, 'dog_truth.txt'))
+train = readers.read_data(os.path.join(folder, 'dog_crowd.txt'))
+label = readers.read_label(os.path.join(folder, 'dog_truth.txt'))
 train_pad = np.append(train, (1 - train.sum(axis=2))[:, :, np.newaxis], axis=2)
 
 ########## to generate ICML figure wrapper
