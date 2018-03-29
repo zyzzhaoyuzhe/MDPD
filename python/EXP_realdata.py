@@ -2,7 +2,7 @@ from __future__ import division
 
 import os
 import numpy as np
-import time
+import time, timeit
 import signal
 import scipy.io as scio
 from scipy.sparse import coo_matrix
@@ -10,8 +10,6 @@ from MDPD import *
 from MDPD.readers import *
 import matplotlib.pyplot as plt
 import matplotlib
-#
-
 
 def handle(signum, frame):
     raise Exception('end of time')
@@ -50,7 +48,7 @@ def fsmv_curve(feature_rank, train, test, label, f_range, ncomp, niter=50):
         # majority vote
         model = MDPD.MDPD()
         model.fit(train_selected, ncomp=ncomp, init='majority', niter=niter)
-        acc = model.score(test_selected, label_selected)
+        acc = model.accuracy(test_selected, label_selected)
         _, err_mv = mv_predictor(test_selected, label_selected)
         acc *= len(label_selected)
         acc += (test.shape[0] - nquestion[-1]) * (test.shape[2] - 1) / test.shape[2]
@@ -86,7 +84,7 @@ def fsspec_curve(feature_rank, train, test, label, f_range, ncomp, niter=50, epo
                 signal.alarm(90)
                 model.fit(train_selected, ncomp, init='spectral', niter=niter)
                 model.align(test_selected, label_selected, range(model.dim))
-                acc = model.score(test_selected, label_selected)
+                acc = model.accuracy(test_selected, label_selected)
                 acc *= len(label_selected)
                 acc += (test.shape[0] - nquestion[-1]) * (test.shape[2] - 1) / test.shape[2]
                 acc /= len(label)
@@ -141,18 +139,25 @@ folder = '/media/vzhao/Data/crowdsourcing_datasets/bird'
 train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'bluebird_crowd.txt'))
 label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'bluebird_truth.txt'))
 
-
-
 ########## to generate ICML figure wrapper
+score = MDPD.utils.Feature_Selection.MI_score(train, rm_diag=True)
+print np.sum(score)
 
 model = MDPD.MDPD()
 model.fit(train, ncomp=2, verbose=False)
-model.score(train, label)
+model.accuracy(train, label)
 
+logpost = model.log_posterior(train)
+score, weights = MDPD.utils.Feature_Selection.MI_score_conditional_faster(train, logpost, rm_diag=True)
+print np.sum(score.sum(axis=(0, 1)) * weights)
 
-features, score = MDPD.utils.MI_feature_selection(train, 15)
+features, score = MDPD.utils.Feature_Selection.MI_feature_selection(train, 15)
 model.fit(train, ncomp=2, verbose=False, features=features)
-model.score(train, label)
+model.accuracy(train, label, features=range(model.dim))
+
+logpost = model.log_posterior(train)
+score, weights = MDPD.utils.Feature_Selection.MI_score_conditional_faster(train, logpost, rm_diag=True)
+print np.sum(score.sum(axis=(0, 1)) * weights)
 
 
 

@@ -9,6 +9,8 @@ from scipy.misc import logsumexp
 from copy import deepcopy
 import tensor_power as tp
 
+import time
+
 
 # def log_comL(nsample, data, W, C):
 #     """
@@ -60,18 +62,20 @@ def mstep(logpost, data):
     :return:
     """
     nsample, dim, nvocab = data.shape
-    # update C
-    post = np.exp(logpost)
+
     # a better implementation
-    newlogC = logsumexp(logpost[:, np.newaxis, np.newaxis, :], axis=0, b=data[..., np.newaxis]) - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
+    newlogC = logsumexp(logpost[:, np.newaxis, np.newaxis, :], axis=0, b=data[..., np.newaxis]) \
+              - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
     # old implementation
+    # post = np.exp(logpost)
     # newlogC = np.log(np.tensordot(data, post, axes=(0, 0))) - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
-    # if turn log(0) to -100
-    newlogC[np.isinf(newlogC)] = -100
+    # newlogC[np.isinf(newlogC)] = -100
+
     newlogC -= logsumexp(newlogC, axis=1)[:, np.newaxis, :]
     # update W
     newlogW = logsumexp(logpost, axis=0) - np.log(nsample)
     return newlogW, newlogC
+
 
 #####################################3
 # MDPD initialization
@@ -141,19 +145,83 @@ def init_spectral(data, ncomp):
         # C.append(foo)
     return np.log(W), np.log(C)
 
-#####################################3
-# MDPD feature selection
-def MI_feature_selection(data, topN):
-    ranking, mi_score = MI_feature_ranking(data)
-    return ranking[:topN], mi_score[ranking]
 
-def MI_feature_ranking(data):
-    pairwise_MI = MI_data(data)
-    mi_score = pairwise_MI.sum(axis=(1, 3))
-    np.fill_diagonal(mi_score, 0)
-    mi_score = mi_score.sum(axis=1)
-    ranking = np.argsort(mi_score, axis=None)[::-1]
-    return ranking, mi_score
+#####################################
+# MDPD feature selection
+class Feature_Selection():
+    @classmethod
+    def MI_feature_selection(cls, data, topN):
+        ranking, mi_score = cls.MI_feature_ranking(data)
+        return ranking[:topN], mi_score[ranking]
+
+    @classmethod
+    def MI_feature_ranking(cls, data):
+        score = cls.MI_score(data, rm_diag=True)
+        # mi_score = pairwise_MI.sum(axis=(1, 3))
+        # np.fill_diagonal(mi_score, 0)
+        mi_score = score.sum(axis=1)
+        ranking = np.argsort(mi_score, axis=None)[::-1]
+        return ranking, mi_score
+
+    @classmethod
+    def MI_score(cls, data, rm_diag=False):
+        nsample, dim, nvocab = data.shape
+        logpost = np.zeros([nsample, 1])
+        newlogW, newlogC = mstep(logpost, data)
+        second = 1. / nsample * np.tensordot(data, data, axes=(0, 0))
+        logfirst = np.add.outer(newlogC[:, :, 0], newlogC[:, :, 0])
+        pmi = second * (np.log(second) - logfirst)
+        pmi[logfirst == 0] = 0
+        pmi[second == 0] = 0
+        score = pmi.sum(axis=(1, 3))
+        if rm_diag:
+            np.fill_diagonal(score, 0)
+        return score
+
+    @classmethod
+    def MI_score_conditional(cls, data, logpost, rm_diag=False):
+        """
+
+        :param data:
+        :param logpost:
+        :param rm_diag:
+        :return: d-d-c, c
+        """
+        nsample, dim, nvocab = data.shape
+        ncomp = logpost.shape[1]
+        newlogW, newlogC = mstep(logpost, data)
+        post = np.exp(logpost)
+        foo_data = data[:, :, :, np.newaxis] * np.sqrt(post)[:, np.newaxis, np.newaxis, :]
+        score = np.zeros((dim, dim, ncomp))
+        for k in range(ncomp):
+            second = 1. / nsample * np.tensordot(foo_data[:, :, :, k], foo_data[:, :, :, k], axes=(0, 0))
+            second = second / np.exp(newlogW[k])
+            logfirst = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
+            pmi = second * (np.log(second) - logfirst)
+            pmi[logfirst == 0] = 0
+            pmi[second == 0] = 0
+            score[:, :, k] = pmi.sum(axis=(1, 3))
+            if rm_diag:
+                np.fill_diagonal(score[:, :, k], 0)
+        return score, np.exp(newlogW)
+
+    @classmethod
+    def MI_score_conditional_faster(cls, data, logpost, rm_diag=False):
+        nsample, dim, nvocab = data.shape
+        ncomp = logpost.shape[1]
+        newlogW, newlogC = mstep(logpost, data)
+        data_out = data[..., np.newaxis, np.newaxis, np.newaxis] * data[:, np.newaxis, np.newaxis, :, :, np.newaxis]
+        logpost_reshape = logpost[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis, :]
+        log_first = newlogC[:, :, np.newaxis, np.newaxis, :] + newlogC[np.newaxis, np.newaxis, ...]
+        log_second = logsumexp(logpost_reshape, axis=0, b=data_out) - np.log(nsample) - np.reshape(newlogW,
+                                                                                                   (1, 1, 1, 1, -1))
+        pmi = np.exp(log_second) * (log_second - log_first)
+        pmi[np.isinf(log_second)] = 0
+        score = np.sum(pmi, axis=(1, 3))
+        for k in xrange(ncomp):
+            if rm_diag:
+                np.fill_diagonal(score[..., k], 0)
+        return score, np.exp(newlogW)
 
 
 # Mutual Information in the data conditional on the model
@@ -182,44 +250,11 @@ def MI_feature_ranking(data):
 #     return MIres
 
 
-def MIres_fast(data, logpost, rm_diag=False, weighted=False):
-    nsample, dim, nvocab = data.shape
-    ncomp = logpost.shape[1]
-    newlogW, newlogC = mstep(logpost, data)
-    post = np.exp(logpost)
-    foo_data = data[:, :, :, np.newaxis] * np.sqrt(post).T[:, np.newaxis, np.newaxis, :]
-    output = np.zeros((dim, dim, ncomp))
-    for k in range(ncomp):
-        second = 1. / nsample * np.tensordot(foo_data[:, :, :, k], foo_data[:, :, :, k], axes=(0, 0))
-        second = second / np.exp(newlogW[k])
-        logfirst = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
-        foo = second * (np.log(second) - logfirst)
-        foo[logfirst == 0] = 0
-        foo[second == 0] = 0
-        foo = foo.sum(axis=(1, 3))
-        output[:, :, k] = foo
-        if rm_diag:
-            np.fill_diagonal(output[:, :, k], 0)
-    return output * np.exp(newlogW[np.newaxis, np.newaxis, :]) if weighted else output
-
-
-def MI_data(data):
-    nsample, dim, nvocab = data.shape
-    logpost = np.zeros([nsample, 1])
-    newlogW, newlogC = mstep(logpost, data)
-    second = 1. / nsample * np.tensordot(data, data, axes=(0, 0))
-    logfirst = np.add.outer(newlogC[:, :, 0], newlogC[:, :, 0])
-    foo = second * (np.log(second) - logfirst)
-    foo[logfirst == 0] = 0
-    foo[second == 0] = 0
-    return foo
-
 # def get_MI(data, W, C, infoset, rm_diag=False):
 #     logpost = logposterior_StageEM(data, W, C, infoset)
 #     newlogW, newlogC = mstep(logpost, data)
 #     MIres = MIres_fast(data, newlogW, newlogC, infoset, rm_diag=rm_diag, weighted=True)
 #     return np.sum(MIres, axis=2)
-
 
 
 def mylog(input):
@@ -242,7 +277,6 @@ def mylog(input):
             output[i] = np.log(foo) if foo != 0 else np.log(sys.float_info.min)
         return output.reshape(_shape)
 
-
 # def comp_duplicate(logW, logC, lock, comp):
 #     newlogW = np.copy(logW)
 #     newlogW = np.append(newlogW, newlogW[comp] - np.log(2))
@@ -262,9 +296,6 @@ def mylog(input):
 #     foo = log_joint_prob_fast(nsample, data_tmp, logW, C_tmp)
 #     lsum = logsumexp(foo, axis=0)
 #     return foo - lsum
-
-
-
 
 
 #

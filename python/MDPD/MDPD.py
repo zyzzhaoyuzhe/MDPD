@@ -65,10 +65,10 @@ class MDPD_basic(object):
         return foo - lsum[:, np.newaxis]
 
     def predict(self, data):
-        logpost = MDPD_basic.log_posterior(self, data)
-        return np.argmax(logpost, axis=1)
+        log_post = MDPD_basic.log_posterior(self, data)
+        return np.argmax(log_post, axis=1)
 
-    def score(self, data, label):
+    def accuracy(self, data, label):
         pred = MDPD_basic.predict(self, data)
         if label.shape != pred.shape:
             raise ValueError('The shape of label is {}. However, {} is expected.'.format(label.shape, pred.shape))
@@ -76,6 +76,12 @@ class MDPD_basic(object):
             acc = sum(pred - label == 0) / label.size
             logger.info('ACCURACY: {0:.2%}'.format(acc))
             return acc
+
+    def MI_residue(self, data):
+        log_post = self.log_posterior(data)
+        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True)
+        res = np.sum(score.sum(axis=1) * weights) / (self.dim * (self.dim - 1))
+        logger.info('The mutual information residue is {}'.format(res))
 
     def reorder(self, order):
         """Perform label swap according to 'order'."""
@@ -204,6 +210,18 @@ class MDPD(MDPD_basic, object):
         self.features = []
         self.lock = None
 
+    def MI_residue(self, data):
+        log_post = self.log_posterior(data)
+        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True)
+        res = np.sum(score.sum(axis=1) * weights) / (self.dim * (self.dim - 1))
+        logger.info('The mutual information residue is {}'.format(res))
+
+        features = np.array(self.features)
+        score_select = score[features[:, np.newaxis], features]
+        res_select = np.sum(score_select.sum(axis=1) * weights) / (len(features) * (len(features) - 1))
+        logger.info('The mutual information residue of the feature set is {}'.format(res_select))
+
+
     def fit(self, data, ncomp,
             features=None, init="majority",
             init_label=None, init_para=None,
@@ -221,12 +239,12 @@ class MDPD(MDPD_basic, object):
         :return:
         """
         nsample, dim, nvocab = data.shape
-        logger.info(
-            "Training an MDPD with dimension %i, sample size %i, vocab size %i and the target number of components %i",
-            self.dim, nsample, self.nvocab, self.ncomp)
         if init:
             self.dim, self.nvocab = dim, nvocab
             self.ncomp = ncomp
+        logger.info(
+            "Training an MDPD with dimension %i, sample size %i, vocab size %i and the target number of components %i",
+            self.dim, nsample, self.nvocab, self.ncomp)
         self.features = features if features is not None else range(dim)
         # choose initialization method
         if sum(map(bool, [init, init_label, init_para])) != 1:
@@ -253,10 +271,10 @@ class MDPD(MDPD_basic, object):
         """
         data_selected = data[:, self.features, :]
         lock = self.lock
-        # E-step
-        logpost = self.log_posterior(data)
+        # E-step with selected features
+        log_post = self.log_posterior(data)
         # M-step (full M-step)
-        newlogW, newlogC = utils.mstep(logpost, data_selected)
+        newlogW, newlogC = utils.mstep(log_post, data_selected)
         if np.any(lock == 0):
             newlogC[lock == 0] = -100
             self.logC[lock == 1] = -100
@@ -292,10 +310,26 @@ class MDPD(MDPD_basic, object):
     #     self.ncomp = 1
     #     pass
 
-
+    #
+    def change_features(self, data, features=None):
+        """Change the feature set"""
+        features = features or range(self.dim)
+        self._assert_features(features)
+        data_selected = data[:, features, :]
+        logpost = self.log_posterior(data)
+        newlogW, newlogC = utils.mstep(logpost, data_selected)
+        lock = self.lock
+        if np.any(lock == 0):
+            newlogC[lock == 0] = -100
+            self.logC[lock == 1] = -100
+            newlogC = newlogC - logsumexp(newlogC, axis=1)[:, np.newaxis, :] \
+                      + np.log(1 - np.exp(logsumexp(self.logC, axis=1)))[:, np.newaxis, :]
+            newlogC[lock == 0] = self.logC[lock == 0]
+        self.logW, self.logC = newlogW, newlogC
+        self.features = features
 
     # fine tune
-    def refine(self, data, features=None, niter=20):
+    def refine(self, data, features=None, niter=20, verbose=False):
         """
         Fine tune the model
         :param data:
@@ -303,10 +337,15 @@ class MDPD(MDPD_basic, object):
         :param niter:
         :return:
         """
-        logger.info('Fine tune the model with ')
-        foo, self.features = self.features, features or range(self.dim)
-        self._em_iterations(data, niter, verbose=False)
-        self.features = foo
+        new_features = features or range(self.dim)
+        self._assert_features(new_features)
+        if set(new_features) != set(self.features):
+            logger.info('Fine tune the model with the feature set {}'.format(new_features))
+            self.change_features(data, features=new_features)
+            self.features = new_features
+        else:
+            logger.info('Fine tune the model.')
+        self._em_iterations(data, niter, verbose=verbose)
 
     # # split component
     # def split(self, data, cord1, cord2, comp):
@@ -348,21 +387,19 @@ class MDPD(MDPD_basic, object):
     #     add(self.logC, self.lock, cord2, comp, dp2 * stepsize)
     #     add(self.logC, self.lock, cord2, -1, -dp2 * stepsize)
 
-    ## EM step
-
-
-    # def get_MIcomplete(self, data):
-    #     return get_MIcomplete(data)
-
-    ## get mutual inforamtion conditional on component (m-m-n-c)
-    def get_MIres(self, data, rm_diag=False, wPMI=False):
-        data_select = data[:, self.features, :]
-        logpost = self.log_posterior(data)
-        return utils.MIres_fast(data_select, logpost, rm_diag=rm_diag, weighted=wPMI)
+    # ## get mutual inforamtion conditional on component (m-m-n-c)
+    # def get_MIres(self, data, rm_diag=False, wPMI=False):
+    #     data_select = data[:, self.features, :]
+    #     logpost = self.log_posterior(data)
+    #     return utils.MIres_fast(data_select, logpost, rm_diag=rm_diag, weighted=wPMI)
 
     # ## get MI
     # def get_MI(self, data, rm_diag=False, subset=None):
     #     return get_MI(data, self.logW, self.logC, subset or self.feature_set, rm_diag=rm_diag)
+
+    @staticmethod
+    def _assert_features(features):
+        assert not isinstance(features, basestring)
 
     def log_likelihood(self, data):
         data_selected = data[:, self.features, :]
@@ -376,9 +413,9 @@ class MDPD(MDPD_basic, object):
         data_selected = data[:, self.features, :]
         return MDPD_basic.predict(self, data_selected)
 
-    def score(self, data, label):
+    def accuracy(self, data, label):
         data_selected = data[:, self.features, :]
-        return MDPD_basic.score(self, data_selected, label)
+        return MDPD_basic.accuracy(self, data_selected, label)
 
 
     # ## predict (overwrite)
@@ -441,7 +478,7 @@ class MDPD(MDPD_basic, object):
         for order in itertools.permutations(range(self.ncomp)):
             order = list(order)
             self.reorder(order)
-            acc = self.score(data_selected, label)
+            acc = self.accuracy(data_selected, label)
             # _, err = self.predict(data, label)
             if acc > best_acc:
                 best_order = order
