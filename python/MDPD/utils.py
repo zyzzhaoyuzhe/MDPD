@@ -13,31 +13,8 @@ import time
 
 NINF = np.finfo('f').min
 
-# def log_comL(nsample, data, W, C):
-#     """
-#     Calculate log of the joint distribution for each data and each component. The size of the output is c by n.
-#     :param nsample:
-#     :param data:
-#     :param W:
-#     :param C:
-#     :return:
-#     """
-#     dim = len(data)
-#     ncomp = np.size(W)
-#     if dim > 0:
-#         out = np.zeros((ncomp, nsample))
-#         # log(f(x|y))
-#         for i in range(dim):
-#             out += MyLog(np.dot(C[i].transpose(), data[i]))
-#         # log(f(y))
-#         logW = MyLog(W).reshape((ncomp,1))
-#         out += logW
-#     else:
-#         out = np.zeros((ncomp, nsample))
-#     return out
 
-#####################################
-# Inference
+################# Inference ####################
 def log_joint_prob_fast(data, logW, logC):
     """
     Log joint probability log(P(X,Y))
@@ -50,12 +27,13 @@ def log_joint_prob_fast(data, logW, logC):
     if data.any() and logC.any():
         foo = data[..., np.newaxis] * logC[np.newaxis, ...]
         foo[np.isnan(foo)] = 0
-        foo = foo.sum(axis=(1,2))
+        foo = foo.sum(axis=(1, 2))
         # foo = np.tensordot(data, logC, axes=[(1, 2), (0, 1)])
     else:
         nsample, ncomp = data.shape[0], logW.size
         foo = np.zeros((ncomp, nsample))
     return foo + logW[np.newaxis, :]
+
 
 def mstep(logpost, data):
     """
@@ -70,10 +48,6 @@ def mstep(logpost, data):
     newlogC = logsumexp(logpost[:, np.newaxis, np.newaxis, :], axis=0, b=data[..., np.newaxis]) \
               - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
     newlogC[np.isneginf(newlogC)] = NINF
-    # old implementation
-    # post = np.exp(logpost)
-    # newlogC = np.log(np.tensordot(data, post, axes=(0, 0))) - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
-    # newlogC[np.isinf(newlogC)] = -100
     newlogC -= logsumexp(newlogC, axis=1)[:, np.newaxis, :]
     # update W
     newlogW = logsumexp(logpost, axis=0) - np.log(nsample)
@@ -88,6 +62,7 @@ class MDPD_initializer():
         logC = np.random.random_sample((dim, nvocab, ncomp))
         logC /= logC.sum(axis=1)[:, np.newaxis, :]
         return logW, logC
+
 
 class Crowdsourcing_initializer(MDPD_initializer):
     @classmethod
@@ -156,7 +131,7 @@ class Crowdsourcing_initializer(MDPD_initializer):
         return np.log(W), np.log(C)
 
 
-#####################################
+################ Feature Selection #####################
 # MDPD feature selection
 class Feature_Selection():
     # TODO to be deprecated
@@ -188,7 +163,7 @@ class Feature_Selection():
     def MI_score(cls, data, rm_diag=False, lock=None):
         pmi = cls.pmi(data)
         if np.any(lock):
-            mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...])==0
+            mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
             score = np.sum(pmi * mask, axis=(1, 3))
         else:
             score = pmi.sum(axis=(1, 3))
@@ -271,40 +246,12 @@ class Feature_Selection():
         return pmi
 
 
-# Mutual Information in the data conditional on the model
-# def get_MIres(data, W, C, infoset, rm_diag=False):
-#     dim = len(data)
-#     nsample = data[0].shape[1]
-#     ncomp = C[0].shape[1] if len(C[0].shape) > 1 else 1
-#     # EM based on current model
-#     logpost = logposterior_StageEM(data, W, C, infoset)
-#     newW, newC = mstep(logpost, data)
-#     ## Body
-#     MIres = np.empty([dim, dim, ncomp])
-#     sqrtpost = np.sqrt(logpost)
-#     for k in range(ncomp):
-#         for i in range(dim):
-#             zi_weighted = data[i] * sqrtpost[k, :]
-#             for j in range(dim):
-#                 zj_weighted = data[j] * sqrtpost[k, :]
-#                 second = 1. / nsample * np.dot(zi_weighted, zj_weighted.transpose())
-#                 second = second / newW[k]
-#                 first = np.outer(newC[i][:, k], newC[j][:, k])
-#                 if rm_diag and i == j:
-#                     MIres[i, j, k] = 0
-#                 else:
-#                     MIres[i, j, k] = np.sum(second * mylog(div0(second, first)))
-#     return MIres
+################# Utilities ####################
 
-
-# def get_MI(data, W, C, infoset, rm_diag=False):
-#     logpost = logposterior_StageEM(data, W, C, infoset)
-#     newlogW, newlogC = mstep(logpost, data)
-#     MIres = MIres_fast(data, newlogW, newlogC, infoset, rm_diag=rm_diag, weighted=True)
-#     return np.sum(MIres, axis=2)
 
 def log_replace_neginf(array):
     array[np.isneginf(array)] = NINF
+
 
 def mylog(input):
     """

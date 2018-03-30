@@ -236,14 +236,6 @@ class MDPD(MDPD_basic, object):
             log_margin_prob_sum = logsumexp(log_margin_prob, axis=1, keepdims=True, b=1 - lock)[..., np.newaxis]
             newlogC_sum = logsumexp(newlogC, axis=1, keepdims=True)
             newlogC = newlogC - newlogC_sum + log_margin_prob_sum
-            # # deal with nan in newlogC
-            # newlogC_sum_isinf = np.broadcast_to(np.isinf(newlogC_sum), newlogC.shape)
-            # if np.any(newlogC_sum_isinf):
-            #     foo = np.broadcast_to(np.log(1./(1 - lock_broadcast).sum(axis=1, keepdims=True)), lock_broadcast.shape)
-            #     newlogC[newlogC_sum_isinf] = foo[newlogC_sum_isinf]
-            #     newlogC[lock_broadcast] = float('-inf')
-            # rescale newlogC
-            # fix the locked variables
             newlogC[lock_broadcast] = np.broadcast_to(log_margin_prob[..., np.newaxis], newlogC.shape)[lock_broadcast]
             self.logC = newlogC
 
