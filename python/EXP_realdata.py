@@ -135,28 +135,59 @@ def indi_rank(test, label):
     return np.argsort(error), sorted(error)
 
 ### Bird data
-folder = '/media/vzhao/Data/crowdsourcing_datasets/bird'
-train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'bluebird_crowd.txt'))
-label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'bluebird_truth.txt'))
+# folder = '/media/vzhao/Data/crowdsourcing_datasets/bird'
+# train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'bluebird_crowd.txt'))
+# label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'bluebird_truth.txt'))
+
+### Dog Data
+# folder = '/media/vzhao/Data/crowdsourcing_datasets/dog'
+# train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'dog_crowd.txt'))
+# label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'dog_truth.txt'))
+# lock = np.zeros(train.shape[1:])
+# lock[:, -1] = 1
+
+
+## Web Data
+folder = '/media/vzhao/Data/crowdsourcing_datasets/web'
+train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'web_crowd.txt'))
+label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'web_truth.txt'))
+lock = np.zeros(train.shape[1:])
+lock[:, -1] = 1
+
+# analysys
+features, score = utils.Feature_Selection.MI_feature_ranking(train)
+
+# Feature Selection
+Ntop = 25
+model = MDPD.MDPD()
+model.fit(train, ncomp=5, init='majority', verbose=False, features=features[:Ntop], niter=50, lock=lock)
+model.accuracy(train, label)
+model.MI_residue(train, lock)
+
+
+
+
+
+
 
 ########## to generate ICML figure wrapper
-score = MDPD.utils.Feature_Selection.MI_score(train, rm_diag=True)
+score = MDPD.utils.Feature_Selection.MI_score(train, rm_diag=True, lock=lock)
 print np.sum(score)
 
 model = MDPD.MDPD()
-model.fit(train, ncomp=2, verbose=False)
+model.fit(train, ncomp=4, verbose=False, lock=lock)
 model.accuracy(train, label)
 
 logpost = model.log_posterior(train)
-score, weights = MDPD.utils.Feature_Selection.MI_score_conditional_faster(train, logpost, rm_diag=True)
+score, weights = MDPD.utils.Feature_Selection.MI_score_conditional(train, logpost, rm_diag=True, lock=lock)
 print np.sum(score.sum(axis=(0, 1)) * weights)
 
-features, score = MDPD.utils.Feature_Selection.MI_feature_selection(train, 15)
-model.fit(train, ncomp=2, verbose=False, features=features)
-model.accuracy(train, label, features=range(model.dim))
+features, score = MDPD.utils.Feature_Selection.MI_feature_ranking(train, lock=lock)
+model.fit(train, ncomp=4, verbose=False, features=features[:60], lock=lock)
+model.accuracy(train, label)
 
 logpost = model.log_posterior(train)
-score, weights = MDPD.utils.Feature_Selection.MI_score_conditional_faster(train, logpost, rm_diag=True)
+score, weights = MDPD.utils.Feature_Selection.MI_score_conditional(train, logpost, rm_diag=True, lock=lock)
 print np.sum(score.sum(axis=(0, 1)) * weights)
 
 

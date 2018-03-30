@@ -11,6 +11,7 @@ import tensor_power as tp
 
 import time
 
+NINF = np.finfo('f').min
 
 # def log_comL(nsample, data, W, C):
 #     """
@@ -35,11 +36,11 @@ import time
 #         out = np.zeros((ncomp, nsample))
 #     return out
 
-#####################################3
+#####################################
 # Inference
 def log_joint_prob_fast(data, logW, logC):
     """
-    Log joint probability
+    Log joint probability log(P(X,Y))
     :param nsample:
     :param data:
     :param logW:
@@ -47,12 +48,14 @@ def log_joint_prob_fast(data, logW, logC):
     :return: c-d
     """
     if data.any() and logC.any():
-        foo = np.tensordot(data, logC, axes=[(1, 2), (0, 1)])
+        foo = data[..., np.newaxis] * logC[np.newaxis, ...]
+        foo[np.isnan(foo)] = 0
+        foo = foo.sum(axis=(1,2))
+        # foo = np.tensordot(data, logC, axes=[(1, 2), (0, 1)])
     else:
         nsample, ncomp = data.shape[0], logW.size
         foo = np.zeros((ncomp, nsample))
     return foo + logW[np.newaxis, :]
-
 
 def mstep(logpost, data):
     """
@@ -66,162 +69,206 @@ def mstep(logpost, data):
     # a better implementation
     newlogC = logsumexp(logpost[:, np.newaxis, np.newaxis, :], axis=0, b=data[..., np.newaxis]) \
               - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
+    newlogC[np.isneginf(newlogC)] = NINF
     # old implementation
     # post = np.exp(logpost)
     # newlogC = np.log(np.tensordot(data, post, axes=(0, 0))) - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
     # newlogC[np.isinf(newlogC)] = -100
-
     newlogC -= logsumexp(newlogC, axis=1)[:, np.newaxis, :]
     # update W
     newlogW = logsumexp(logpost, axis=0) - np.log(nsample)
     return newlogW, newlogC
 
 
-#####################################3
-# MDPD initialization
-def init_mv(data, feature_set):  # majority vote
-    data_selected = data[:, feature_set, :]
-    votes = data_selected.sum(axis=1)  # n-r
-    logpost = np.log(votes / votes.sum(axis=1)[:, np.newaxis])
-    logpost[np.isneginf(logpost)] = -100
-    return mstep(logpost, data_selected)
+################# Initializer ####################
+class MDPD_initializer():
+    @classmethod
+    def init_random(cls, dim, ncomp, nvocab):
+        logW = np.ones(ncomp) / ncomp
+        logC = np.random.random_sample((dim, nvocab, ncomp))
+        logC /= logC.sum(axis=1)[:, np.newaxis, :]
+        return logW, logC
 
+class Crowdsourcing_initializer(MDPD_initializer):
+    @classmethod
+    def init_mv(cls, data, features, rm_last=False):  # majority vote
+        data_selected = data[:, features, :]
+        if rm_last:
+            votes = np.sum(data_selected[..., :-1], axis=1, dtype=np.float)
+        else:
+            votes = data_selected.sum(axis=1, dtype=np.float)  # n-r
+        log_votes = np.log(votes)
+        log_replace_neginf(log_votes)
+        log_votes_sum = logsumexp(log_votes, axis=1, keepdims=True)
+        log_post = log_votes - log_votes_sum
+        return mstep(log_post, data_selected)
 
-def init_random(dim, ncomp, nvocab):
-    logW = np.ones(ncomp) / ncomp
-    logC = np.random.random_sample((dim, nvocab, ncomp))
-    logC /= logC.sum(axis=1)[:, np.newaxis, :]
-    return logW, logC
+    @classmethod
+    def init_spectral(data, ncomp):
+        """
+        Use spectral methods to initialize EM. (Zhang. and Jordan. 2014)
+        :param data:
+        :return:
+        """
+        nsample, dim, nvocab = data.shape
+        # divide workers into 3 partitions
+        num_worker_partition = int(dim / 3)
+        # np.random.seed(seed=10)
+        foo = np.random.permutation(dim)
 
+        partition = [None] * 3
+        partition[0] = foo[:num_worker_partition]
+        partition[1] = foo[num_worker_partition:2 * num_worker_partition]
+        partition[2] = foo[2 * num_worker_partition:]
 
-def init_spectral(data, ncomp):
-    """
-            Use spectral methods to initialize EM. (Zhang. and Jordan. 2014)
-            :param data:
-            :return:
-            """
-    nsample, dim, nvocab = data.shape
-    # divide workers into 3 partitions
-    num_worker_partition = int(dim / 3)
-    # np.random.seed(seed=10)
-    foo = np.random.permutation(dim)
-
-    partition = [None] * 3
-    partition[0] = foo[:num_worker_partition]
-    partition[1] = foo[num_worker_partition:2 * num_worker_partition]
-    partition[2] = foo[2 * num_worker_partition:]
-
-    # calculate average response to each sample for each group
-    train_g = [None] * 3
-    for g in range(3):
-        foo = data[:, partition[g], :]
-        train_g[g] = np.mean(foo, axis=1).T
-
-    #
-    perm = [[1, 2, 0], [2, 0, 1], [0, 1, 2]]
-    #
-    W = []
-    Cg = []
-    for g in range(3):
-        a = perm[g][0]
-        b = perm[g][1]
-        c = perm[g][2]
-        m2, m3 = tp.get_tensor(train_g, a, b, c)
-        foo, bar = tp.tensorpower(m2, m3, ncomp)
-        W.append(foo)
-        Cg.append(bar)
-    W = np.mean(np.asarray(W), axis=0)
-    # normalize W
-    W /= sum(W)
-    # use Cg to recover C for each worker
-    C = np.zeros((dim, nvocab, ncomp))
-    for i in range(dim):
-        foo = np.zeros((ncomp, ncomp))
+        # calculate average response to each sample for each group
+        train_g = [None] * 3
         for g in range(3):
-            if i not in partition[g]:
-                foo += tp.get_Ci(train_g, W, Cg, g, data, i)
-        foo = foo / 2
-        C[i, :, :] = foo
-        # C.append(foo)
-    return np.log(W), np.log(C)
+            foo = data[:, partition[g], :]
+            train_g[g] = np.mean(foo, axis=1).T
+
+        #
+        perm = [[1, 2, 0], [2, 0, 1], [0, 1, 2]]
+        #
+        W = []
+        Cg = []
+        for g in range(3):
+            a = perm[g][0]
+            b = perm[g][1]
+            c = perm[g][2]
+            m2, m3 = tp.get_tensor(train_g, a, b, c)
+            foo, bar = tp.tensorpower(m2, m3, ncomp)
+            W.append(foo)
+            Cg.append(bar)
+        W = np.mean(np.asarray(W), axis=0)
+        # normalize W
+        W /= sum(W)
+        # use Cg to recover C for each worker
+        C = np.zeros((dim, nvocab, ncomp))
+        for i in range(dim):
+            foo = np.zeros((ncomp, ncomp))
+            for g in range(3):
+                if i not in partition[g]:
+                    foo += tp.get_Ci(train_g, W, Cg, g, data, i)
+            foo = foo / 2
+            C[i, :, :] = foo
+            # C.append(foo)
+        return np.log(W), np.log(C)
 
 
 #####################################
 # MDPD feature selection
 class Feature_Selection():
-    @classmethod
-    def MI_feature_selection(cls, data, topN):
-        ranking, mi_score = cls.MI_feature_ranking(data)
-        return ranking[:topN], mi_score[ranking]
+    # TODO to be deprecated
+    # @classmethod
+    # def MI_feature_selection(cls, data, topN):
+    #     ranking, sigma = cls.MI_feature_ranking(data)
+    #     return ranking[:topN], sigma[:topN]
 
     @classmethod
-    def MI_feature_ranking(cls, data):
-        score = cls.MI_score(data, rm_diag=True)
-        # mi_score = pairwise_MI.sum(axis=(1, 3))
-        # np.fill_diagonal(mi_score, 0)
-        mi_score = score.sum(axis=1)
-        ranking = np.argsort(mi_score, axis=None)[::-1]
-        return ranking, mi_score
+    def MI_feature_ranking(cls, data, lock=None):
+        score = cls.MI_score(data, rm_diag=True, lock=lock)
+        sigma = score.sum(axis=1)
+        ranking = np.argsort(sigma, axis=None)[::-1]
+        return ranking, sigma[ranking]
 
     @classmethod
-    def MI_score(cls, data, rm_diag=False):
+    def pmi(cls, data):
+        "The shape of the output: d - r - d - r. r is the size of vocalbulary."
         nsample, dim, nvocab = data.shape
         logpost = np.zeros([nsample, 1])
         newlogW, newlogC = mstep(logpost, data)
         second = 1. / nsample * np.tensordot(data, data, axes=(0, 0))
         logfirst = np.add.outer(newlogC[:, :, 0], newlogC[:, :, 0])
         pmi = second * (np.log(second) - logfirst)
-        pmi[logfirst == 0] = 0
         pmi[second == 0] = 0
-        score = pmi.sum(axis=(1, 3))
+        return pmi
+
+    @classmethod
+    def MI_score(cls, data, rm_diag=False, lock=None):
+        pmi = cls.pmi(data)
+        if np.any(lock):
+            mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...])==0
+            score = np.sum(pmi * mask, axis=(1, 3))
+        else:
+            score = pmi.sum(axis=(1, 3))
         if rm_diag:
             np.fill_diagonal(score, 0)
         return score
 
     @classmethod
-    def MI_score_conditional(cls, data, logpost, rm_diag=False):
+    def MI_score_conditional(cls, data, log_post, rm_diag=False, lock=None):
         """
 
         :param data:
-        :param logpost:
+        :param log_post:
         :param rm_diag:
-        :return: d-d-c, c
+        :param lock: d - r
+        :return: d - d - c, c
         """
-        nsample, dim, nvocab = data.shape
-        ncomp = logpost.shape[1]
-        newlogW, newlogC = mstep(logpost, data)
-        post = np.exp(logpost)
-        foo_data = data[:, :, :, np.newaxis] * np.sqrt(post)[:, np.newaxis, np.newaxis, :]
-        score = np.zeros((dim, dim, ncomp))
-        for k in range(ncomp):
-            second = 1. / nsample * np.tensordot(foo_data[:, :, :, k], foo_data[:, :, :, k], axes=(0, 0))
-            second = second / np.exp(newlogW[k])
-            logfirst = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
-            pmi = second * (np.log(second) - logfirst)
-            pmi[logfirst == 0] = 0
-            pmi[second == 0] = 0
-            score[:, :, k] = pmi.sum(axis=(1, 3))
+        ncomp = log_post.shape[1]
+        pmi = cls.pmi_conditional(data, log_post)
+        newlogW, newlogC = mstep(log_post, data)
+        if np.any(lock):
+            mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
+            score = np.sum(pmi * mask[..., np.newaxis], axis=(1, 3))
+        else:
+            score = np.sum(pmi, axis=(1, 3))
+        for k in xrange(ncomp):
             if rm_diag:
-                np.fill_diagonal(score[:, :, k], 0)
+                np.fill_diagonal(score[..., k], 0)
         return score, np.exp(newlogW)
 
+    # # TODO: to be deprecated
+    # @classmethod
+    # def MI_score_conditional_faster(cls, data, logpost, rm_diag=False):
+    #     nsample, dim, nvocab = data.shape
+    #     ncomp = logpost.shape[1]
+    #     newlogW, newlogC = mstep(logpost, data)
+    #     data_out = data[..., np.newaxis, np.newaxis, np.newaxis] * data[:, np.newaxis, np.newaxis, :, :, np.newaxis]
+    #     logpost_reshape = logpost[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis, :]
+    #     log_first = newlogC[:, :, np.newaxis, np.newaxis, :] + newlogC[np.newaxis, np.newaxis, ...]
+    #     log_second = logsumexp(logpost_reshape, axis=0, b=data_out) - np.log(nsample) - np.reshape(newlogW,
+    #                                                                                                (1, 1, 1, 1, -1))
+    #     pmi = np.exp(log_second) * (log_second - log_first)
+    #     pmi[np.isinf(log_second)] = 0
+    #     score = np.sum(pmi, axis=(1, 3))
+    #     for k in xrange(ncomp):
+    #         if rm_diag:
+    #             np.fill_diagonal(score[..., k], 0)
+    #     return score, np.exp(newlogW)
+
     @classmethod
-    def MI_score_conditional_faster(cls, data, logpost, rm_diag=False):
+    def pmi_conditional(cls, data, log_post):
         nsample, dim, nvocab = data.shape
-        ncomp = logpost.shape[1]
-        newlogW, newlogC = mstep(logpost, data)
+        ncomp = log_post.shape[1]
+        newlogW, newlogC = mstep(log_post, data)
+        post = np.exp(log_post)
+        data_transform = data[:, :, :, np.newaxis] * np.sqrt(post)[:, np.newaxis, np.newaxis, :]
+        cache = []
+        for k in range(ncomp):
+            second = 1. / nsample * np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
+            second = second / np.exp(newlogW[k])
+            log_first = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
+            pmi = second * (np.log(second) - log_first)
+            # pmi[log_first == 0] = 0
+            pmi[second == 0] = 0
+            cache.append(pmi[..., np.newaxis])
+        return np.concatenate(cache, axis=4)
+
+    @classmethod
+    def pmi_conditional_faster(cls, data, log_post):
+        nsample, dim, nvocab = data.shape
+        ncomp = log_post.shape[1]
+        newlogW, newlogC = mstep(log_post, data)
         data_out = data[..., np.newaxis, np.newaxis, np.newaxis] * data[:, np.newaxis, np.newaxis, :, :, np.newaxis]
-        logpost_reshape = logpost[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis, :]
+        logpost_reshape = log_post[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis, :]
         log_first = newlogC[:, :, np.newaxis, np.newaxis, :] + newlogC[np.newaxis, np.newaxis, ...]
         log_second = logsumexp(logpost_reshape, axis=0, b=data_out) - np.log(nsample) - np.reshape(newlogW,
                                                                                                    (1, 1, 1, 1, -1))
         pmi = np.exp(log_second) * (log_second - log_first)
         pmi[np.isinf(log_second)] = 0
-        score = np.sum(pmi, axis=(1, 3))
-        for k in xrange(ncomp):
-            if rm_diag:
-                np.fill_diagonal(score[..., k], 0)
-        return score, np.exp(newlogW)
+        return pmi
 
 
 # Mutual Information in the data conditional on the model
@@ -256,6 +303,8 @@ class Feature_Selection():
 #     MIres = MIres_fast(data, newlogW, newlogC, infoset, rm_diag=rm_diag, weighted=True)
 #     return np.sum(MIres, axis=2)
 
+def log_replace_neginf(array):
+    array[np.isneginf(array)] = NINF
 
 def mylog(input):
     """

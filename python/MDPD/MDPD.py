@@ -16,6 +16,8 @@ from scipy.misc import logsumexp
 
 import utils
 
+NINF = np.finfo('f').min
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s : %(levelname)s : %(message)s')
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s : %(levelname)s : %(message)s')
 logger = logging.getLogger(__name__)
@@ -210,9 +212,9 @@ class MDPD(MDPD_basic, object):
         self.features = []
         self.lock = None
 
-    def MI_residue(self, data):
+    def MI_residue(self, data, lock):
         log_post = self.log_posterior(data)
-        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True)
+        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=lock)
         res = np.sum(score.sum(axis=1) * weights) / (self.dim * (self.dim - 1))
         logger.info('The mutual information residue is {}'.format(res))
 
@@ -221,11 +223,34 @@ class MDPD(MDPD_basic, object):
         res_select = np.sum(score_select.sum(axis=1) * weights) / (len(features) * (len(features) - 1))
         logger.info('The mutual information residue of the feature set is {}'.format(res_select))
 
+    def _apply_lock(self, data):
+        "Apply the lock to worker i for the component k, so that i is not discriminant at k."
+        data_selected = data[:, self.features, :]
+        lock = self.lock
+        if np.any(lock):
+            newlogC = self.logC.copy()
+            lock_broadcast = np.broadcast_to(lock[..., np.newaxis], newlogC.shape)
+            newlogC[lock_broadcast] = NINF
+            log_margin_prob = np.log(data_selected.sum(axis=0) / data_selected.shape[0])
+            utils.log_replace_neginf(log_margin_prob)
+            log_margin_prob_sum = logsumexp(log_margin_prob, axis=1, keepdims=True, b=1 - lock)[..., np.newaxis]
+            newlogC_sum = logsumexp(newlogC, axis=1, keepdims=True)
+            newlogC = newlogC - newlogC_sum + log_margin_prob_sum
+            # # deal with nan in newlogC
+            # newlogC_sum_isinf = np.broadcast_to(np.isinf(newlogC_sum), newlogC.shape)
+            # if np.any(newlogC_sum_isinf):
+            #     foo = np.broadcast_to(np.log(1./(1 - lock_broadcast).sum(axis=1, keepdims=True)), lock_broadcast.shape)
+            #     newlogC[newlogC_sum_isinf] = foo[newlogC_sum_isinf]
+            #     newlogC[lock_broadcast] = float('-inf')
+            # rescale newlogC
+            # fix the locked variables
+            newlogC[lock_broadcast] = np.broadcast_to(log_margin_prob[..., np.newaxis], newlogC.shape)[lock_broadcast]
+            self.logC = newlogC
 
     def fit(self, data, ncomp,
             features=None, init="majority",
             init_label=None, init_para=None,
-            niter=30, verbose=True):
+            niter=30, verbose=True, lock=None):
         """
         Fit the model to training data.
         :param data: numpy array, shape = (nsample, dim, nvocab)
@@ -238,30 +263,32 @@ class MDPD(MDPD_basic, object):
         :param verbose:
         :return:
         """
+        ## update instance variables
         nsample, dim, nvocab = data.shape
-        if init:
-            self.dim, self.nvocab = dim, nvocab
-            self.ncomp = ncomp
+        self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
+        self.features = features if features is not None else range(dim)
+        self.lock = np.array(lock[np.array(self.features), :], dtype=np.bool) if lock is not None else np.zeros((len(self.features), nvocab), dtype=np.bool)
         logger.info(
             "Training an MDPD with dimension %i, sample size %i, vocab size %i and the target number of components %i",
-            self.dim, nsample, self.nvocab, self.ncomp)
-        self.features = features if features is not None else range(dim)
-        # choose initialization method
+            len(self.features), nsample, self.nvocab, self.ncomp)
+        ## choose initialization method
         if sum(map(bool, [init, init_label, init_para])) != 1:
             raise ValueError('Use one and only one of init, init_label, init_para.')
         if init == "majority":
-            self.logW, self.logC = utils.init_mv(data, self.features)
+            self.logW, self.logC = utils.Crowdsourcing_initializer.init_mv(data, self.features, rm_last=np.any(self.lock))
         elif init == "random":
             self.logW, self.logC = utils.init_random(self.dim, self.ncomp, self.nvocab)
         elif init == "spectral":
             self.logW, self.logC = utils.init_spectral(data, self.ncomp)
-        if init_label:
+        elif init_label:
             self.logW, self.logC = utils.mstep(init_label, data[:, self.features, :])
-        if init_para:
+        elif init_para:
             self.logW, self.logC = init_para
+        else:
+            raise ValueError('No valid initialization.')
+        self._apply_lock(data)
         # statistics
-        self._em_iterations(data, niter, verbose=verbose)
-
+        self._em_wrapper(data, niter, verbose=verbose)
 
     def _em(self, data):
         """
@@ -270,21 +297,14 @@ class MDPD(MDPD_basic, object):
         :return:
         """
         data_selected = data[:, self.features, :]
-        lock = self.lock
         # E-step with selected features
         log_post = self.log_posterior(data)
         # M-step (full M-step)
-        newlogW, newlogC = utils.mstep(log_post, data_selected)
-        if np.any(lock == 0):
-            newlogC[lock == 0] = -100
-            self.logC[lock == 1] = -100
-            newlogC = newlogC - logsumexp(newlogC, axis=1)[:, np.newaxis, :] \
-                      + np.log(1 - np.exp(logsumexp(self.logC, axis=1)))[:, np.newaxis, :]
-            newlogC[lock == 0] = self.logC[lock == 0]
-        self.logW = newlogW
-        self.logC = newlogC
+        self.logW, self.logC = utils.mstep(log_post, data_selected)
+        self._apply_lock(data)
 
-    def _em_iterations(self, data, niter, verbose=False):
+
+    def _em_wrapper(self, data, niter, verbose=False):
         for count in xrange(niter):
             self._em(data)
             if verbose:
@@ -318,13 +338,13 @@ class MDPD(MDPD_basic, object):
         data_selected = data[:, features, :]
         logpost = self.log_posterior(data)
         newlogW, newlogC = utils.mstep(logpost, data_selected)
-        lock = self.lock
-        if np.any(lock == 0):
-            newlogC[lock == 0] = -100
-            self.logC[lock == 1] = -100
-            newlogC = newlogC - logsumexp(newlogC, axis=1)[:, np.newaxis, :] \
-                      + np.log(1 - np.exp(logsumexp(self.logC, axis=1)))[:, np.newaxis, :]
-            newlogC[lock == 0] = self.logC[lock == 0]
+        # lock = self.lock
+        # if np.any(lock == 1):
+        #     newlogC[lock == 1] = -100
+        #     self.logC[lock == 0] = -100
+        #     newlogC = newlogC - logsumexp(newlogC, axis=1)[:, np.newaxis, :] \
+        #               + np.log(1 - np.exp(logsumexp(self.logC, axis=1)))[:, np.newaxis, :]
+        #     newlogC[lock == 0] = self.logC[lock == 0]
         self.logW, self.logC = newlogW, newlogC
         self.features = features
 
@@ -345,7 +365,7 @@ class MDPD(MDPD_basic, object):
             self.features = new_features
         else:
             logger.info('Fine tune the model.')
-        self._em_iterations(data, niter, verbose=verbose)
+        self._em_wrapper(data, niter, verbose=verbose)
 
     # # split component
     # def split(self, data, cord1, cord2, comp):
