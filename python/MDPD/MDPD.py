@@ -295,7 +295,6 @@ class MDPD(MDPD_basic, object):
         self.logW, self.logC = utils.mstep(log_post, data_selected)
         self._apply_lock(data)
 
-
     def _em_wrapper(self, data, niter, verbose=False):
         for count in xrange(niter):
             self._em(data)
@@ -429,48 +428,6 @@ class MDPD(MDPD_basic, object):
         data_selected = data[:, self.features, :]
         return MDPD_basic.accuracy(self, data_selected, label)
 
-
-    # ## predict (overwrite)
-    # def predict(self, data, label, subset=None):
-    #     """Handle Ties"""
-    #     logpost = self.log_posterior(data, subset=subset or self.feature_set)
-    #     # new
-    #     rank = np.argsort(logpost, axis=0)[::-1, :]
-    #     if data.shape[0] != len(label):
-    #         return rank[0, :]
-    #     else:
-    #         err = 0
-    #         tie = 0
-    #         for i in xrange(data.shape[0]):
-    #             idx = 0
-    #             while idx < rank.shape[0] - 1 and logpost[rank[idx + 1, i], i] == logpost[rank[0, i], i]:
-    #                 idx += 1
-    #             if label[i] not in rank[:idx + 1, i]:
-    #                 err += 1
-    #             else:
-    #                 err += idx / (idx + 1)
-    #                 if idx:
-    #                     tie += 1
-    #         print 'error rate is ' + str(err / len(label))
-    #         print str(tie) + ' ties'
-    #         return rank[0, :], err / len(label)
-    #         # old
-    #         # foo = np.argmax(logpost, axis=0)
-    #         # if data.shape[0] != len(label):
-    #         #     return foo
-    #         # else:
-    #         #     err = sum(foo-label!=0)
-    #         #     print 'error rate is ' + str(err/len(label))
-    #         #     return foo, err / len(label)
-
-    # ## Swap
-    # def swap(self, idx1, idx2):
-    #     foo = self.logW[idx1]
-    #     self.logW[idx1] = self.logW[idx2]
-    #     foo = np.copy(self.logC[:, :, idx1])
-    #     self.logC[:, :, idx1] = self.logC[:, :, idx2]
-    #     self.logC[:, :, idx2] = foo
-
     def align(self, data, label, features=None):
         """
 
@@ -540,3 +497,9 @@ class MDPD(MDPD_basic, object):
     #                 newactiveset.append(newm - 1)
     #     self._feature_set = newactiveset
     #     MDPD_basic.merge(self, cord_list)
+
+
+class MDPD2(MDPD_basic):
+    def __init__(self):
+        super(MDPD2, self).__init__()
+        self.features = 
