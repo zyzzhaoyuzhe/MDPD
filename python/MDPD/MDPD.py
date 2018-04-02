@@ -263,7 +263,7 @@ class MDPD(MDPD_basic, object):
         logger.info(
             "Training an MDPD with dimension %i, sample size %i, vocab size %i and the target number of components %i",
             len(self.features), nsample, self.nvocab, self.ncomp)
-        ## choose initialization method
+        ## initialize
         if sum(map(bool, [init, init_label, init_para])) != 1:
             raise ValueError('Use one and only one of init, init_label, init_para.')
         if init == "majority":
@@ -300,15 +300,6 @@ class MDPD(MDPD_basic, object):
             self._em(data)
             if verbose:
                 logger.info("iteration %d; log-likelihood %f;", count, self.log_likelihood(data))
-        # count = 0
-        #
-        # while True:
-        #     count += 1
-        #     self.EM(data, range(self.dim))
-        #     ll = self.loglikelihood(data)
-        #     logger.info("iteration %d; log-likelihood %f;", count, ll)
-        #     if count >= niter:
-        #         break
 
     # def reset(self, data):
     #     self.feature_set = []
@@ -502,4 +493,39 @@ class MDPD(MDPD_basic, object):
 class MDPD2(MDPD_basic):
     def __init__(self):
         super(MDPD2, self).__init__()
-        self.features = 
+        self.features_comp = None   # feature sets per mixture component
+
+    def fit(self, data, ncomp, nfeatures, init='random', batch=100, update_feature_per_batchs=50, epoch=50, verbose=True):
+        "Fit the model to data use independent feature sets for each components. The algorithm will update the feature sets every a number of batches."
+        ## update the instance parameters
+        nsample, dim, nvocab = data.shape
+        self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
+        self.nfeatures = nfeatures
+        logger.info(
+            "Training an MDPD with dimension %i, sample size %i, vocab size %i and the target number of components %i",
+            len(self.features), nsample, self.nvocab, self.ncomp)
+        ## initialize
+        if init == 'random':
+            self.logW, self.logC = utils.MDPD_initializer.init_random(self.dim, self.ncomp, self.nvocab)
+        ## learning
+        nbatch = np.floor(nsample / batch)
+        for _ in xrange(epoch):
+            # random permutate the data
+            data = data[np.random.permutation(data.shape[0]), ...]
+            for t in xrange(nbatch):
+                idx_batch = np.arange(t*batch, (t+1)*batch)
+                if t % update_feature_per_batchs == 0:
+                    # update the feature sets
+                    self._update_features_comp()
+                self._em(data[idx_batch, ...])
+
+    def _update_features_comp(self):
+        pass
+
+    def _em(self, data_batch):
+        # E-step
+        log_post = self.log_posterior(data_batch)
+        # M-step
+        self.logW, self.logC = utils.mstep(log_post, data_batch)
+
+    def log_posterior(self, data_batch):

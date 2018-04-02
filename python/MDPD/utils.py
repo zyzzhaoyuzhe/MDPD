@@ -176,7 +176,7 @@ class Feature_Selection():
         """
 
         :param data:
-        :param log_post:
+        :param log_post: n - c
         :param rm_diag:
         :param lock: d - r
         :return: d - d - c, c
