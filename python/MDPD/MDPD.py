@@ -58,8 +58,8 @@ class MDPD_basic(object):
 
     def log_likelihood(self, data):
         foo = utils.log_joint_prob_fast(data, self._logW, self._logC)
-        lsum = logsumexp(foo, axis=1)
-        return lsum.mean()
+        log_marginal_x = logsumexp(foo, axis=1)
+        return log_marginal_x.mean()
 
     def log_posterior(self, data):
         log_joint = utils.log_joint_prob_fast(data, self._logW, self._logC)
@@ -67,11 +67,11 @@ class MDPD_basic(object):
         return log_joint - normalizer
 
     def predict(self, data):
-        log_post = MDPD_basic.log_posterior(self, data)
+        log_post = self.log_posterior(data)
         return np.argmax(log_post, axis=1)
 
     def accuracy(self, data, label):
-        pred = MDPD_basic.predict(self, data)
+        pred = self.predict(data)
         if label.shape != pred.shape:
             raise ValueError('The shape of label is {}. However, {} is expected.'.format(label.shape, pred.shape))
         else:
@@ -212,9 +212,9 @@ class MDPD(MDPD_basic, object):
         self.features = []
         self.lock = None
 
-    def MI_residue(self, data, lock):
+    def MI_residue(self, data):
         log_post = self.log_posterior(data)
-        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=lock)
+        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=self.lock)
         res = np.sum(score.sum(axis=1) * weights) / (self.dim * (self.dim - 1))
         logger.info('The mutual information residue is {}'.format(res))
 
@@ -225,13 +225,13 @@ class MDPD(MDPD_basic, object):
 
     def _apply_lock(self, data):
         "Apply the lock to worker i for the component k, so that i is not discriminant at k."
-        data_selected = data[:, self.features, :]
+        # data = data[:, self.features, :]
         lock = self.lock
         if np.any(lock):
             newlogC = self.logC.copy()
             lock_broadcast = np.broadcast_to(lock[..., np.newaxis], newlogC.shape)
             newlogC[lock_broadcast] = NINF
-            log_margin_prob = np.log(data_selected.sum(axis=0) / data_selected.shape[0])
+            log_margin_prob = np.log(data.sum(axis=0) / data.shape[0])
             utils.log_replace_neginf(log_margin_prob)
             log_margin_prob_sum = logsumexp(log_margin_prob, axis=1, keepdims=True, b=1 - lock)[..., np.newaxis]
             newlogC_sum = logsumexp(newlogC, axis=1, keepdims=True)
@@ -259,10 +259,10 @@ class MDPD(MDPD_basic, object):
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
         self.features = features if features is not None else range(dim)
-        self.lock = np.array(lock[np.array(self.features), :], dtype=np.bool) if lock is not None else np.zeros((len(self.features), nvocab), dtype=np.bool)
+        self.lock = np.array(lock, dtype=np.bool) if lock is not None else np.zeros((dim, nvocab), dtype=np.bool)
         logger.info(
-            "Training an MDPD with dimension %i, sample size %i, vocab size %i and the target number of components %i",
-            len(self.features), nsample, self.nvocab, self.ncomp)
+            "Training an MDPD with dimension %i, $i features, sample size %i, vocab size %i and the target number of components %i",
+            self.dim, len(self.features), nsample, self.nvocab, self.ncomp)
         ## initialize
         if sum(map(bool, [init, init_label, init_para])) != 1:
             raise ValueError('Use one and only one of init, init_label, init_para.')
@@ -288,18 +288,17 @@ class MDPD(MDPD_basic, object):
         :param data:
         :return:
         """
-        data_selected = data[:, self.features, :]
         # E-step with selected features
         log_post = self.log_posterior(data)
         # M-step (full M-step)
-        self.logW, self.logC = utils.mstep(log_post, data_selected)
+        self.logW, self.logC = utils.mstep(log_post, data)
         self._apply_lock(data)
 
     def _em_wrapper(self, data, niter, verbose=False):
         for count in xrange(niter):
             self._em(data)
             if verbose:
-                logger.info("iteration %d; log-likelihood %f;", count, self.log_likelihood(data))
+                logger.info("iteration %d; log-likelihood (feature selection) %f; log_likelihood %f", count, self.log_likelihood(data), super(MDPD, self).log_likelihood(data))
 
     # def reset(self, data):
     #     self.feature_set = []
@@ -317,17 +316,6 @@ class MDPD(MDPD_basic, object):
         """Change the feature set"""
         features = features or range(self.dim)
         self._assert_features(features)
-        data_selected = data[:, features, :]
-        logpost = self.log_posterior(data)
-        newlogW, newlogC = utils.mstep(logpost, data_selected)
-        # lock = self.lock
-        # if np.any(lock == 1):
-        #     newlogC[lock == 1] = -100
-        #     self.logC[lock == 0] = -100
-        #     newlogC = newlogC - logsumexp(newlogC, axis=1)[:, np.newaxis, :] \
-        #               + np.log(1 - np.exp(logsumexp(self.logC, axis=1)))[:, np.newaxis, :]
-        #     newlogC[lock == 0] = self.logC[lock == 0]
-        self.logW, self.logC = newlogW, newlogC
         self.features = features
 
     # fine tune
@@ -349,75 +337,29 @@ class MDPD(MDPD_basic, object):
             logger.info('Fine tune the model.')
         self._em_wrapper(data, niter, verbose=verbose)
 
-    # # split component
-    # def split(self, data, cord1, cord2, comp):
-    #     # get Hessian (Hessian of marginal loglikelihood)
-    #     H = get_Hessian2(data, self.logW, self.logC, self.lock, self.feature_set, cord1, cord2, comp)
-    #     # solve constrained singular value problem
-    #     U, Sig, V = np.linalg.svd(H)
-    #     V = V.T
-    #     m, n = U.shape
-    #     allone = np.ones(m) * 1 / np.sqrt(m)
-    #     for i in xrange(n):
-    #         U[:, i] -= np.dot(U[:, i], allone) * allone
-    #     m, n = V.shape
-    #     allone = np.ones(m) * 1 / np.sqrt(m)
-    #     for i in xrange(n):
-    #         V[:, i] -= np.dot(V[:, i], allone) * allone
-    #
-    #     H_star = U.dot(np.diag(Sig)).dot(V.T)
-    #     U, Sig, V = np.linalg.svd(H_star)
-    #     V = V.T
-    #
-    #     #
-    #     dp1 = U[:, 0]
-    #     dp2 = V[:, 0]
-    #
-    #     # split component k into two
-    #     self.logW, self.logC, self.lock, self.ncomp = comp_duplicate(self.logW, self.logC, self.lock, comp)
-    #     ## break symmetry
-    #     stepsize = .05
-    #
-    #     def add(logC, lock, cord, comp, dp):
-    #         prob = np.exp(logC[cord, lock[cord, :, comp] == 1, comp]) + dp
-    #         prob[prob < 0] = 0.001
-    #         prob[prob > 1] = 1
-    #         logC[cord, lock[cord, :, comp] == 1, comp] = np.log(prob)
-    #
-    #     add(self.logC, self.lock, cord1, comp, dp1 * stepsize)
-    #     add(self.logC, self.lock, cord1, -1, -dp1 * stepsize)
-    #     add(self.logC, self.lock, cord2, comp, dp2 * stepsize)
-    #     add(self.logC, self.lock, cord2, -1, -dp2 * stepsize)
-
-    # ## get mutual inforamtion conditional on component (m-m-n-c)
-    # def get_MIres(self, data, rm_diag=False, wPMI=False):
-    #     data_select = data[:, self.features, :]
-    #     logpost = self.log_posterior(data)
-    #     return utils.MIres_fast(data_select, logpost, rm_diag=rm_diag, weighted=wPMI)
-
-    # ## get MI
-    # def get_MI(self, data, rm_diag=False, subset=None):
-    #     return get_MI(data, self.logW, self.logC, subset or self.feature_set, rm_diag=rm_diag)
-
     @staticmethod
     def _assert_features(features):
         assert not isinstance(features, basestring)
 
     def log_likelihood(self, data):
         data_selected = data[:, self.features, :]
-        return MDPD_basic.log_likelihood(self, data_selected)
+        log_joint = utils.log_joint_prob_fast(data_selected, self.logW, self.logC[self.features, ...])
+        log_marginal_x = logsumexp(log_joint, axis=1)
+        return log_marginal_x.mean()
 
     def log_posterior(self, data):
         data_selected = data[:, self.features, :]
-        return MDPD_basic.log_posterior(self, data_selected)
+        log_joint = utils.log_joint_prob_fast(data_selected, self.logW, self.logC[self.features, ...])
+        normalizer = logsumexp(log_joint, axis=1, keepdims=True)
+        return log_joint - normalizer
 
-    def predict(self, data):
-        data_selected = data[:, self.features, :]
-        return MDPD_basic.predict(self, data_selected)
+    # def predict(self, data):
+    #     data_selected = data[:, self.features, :]
+    #     return MDPD_basic.predict(self, data_selected)
 
-    def accuracy(self, data, label):
-        data_selected = data[:, self.features, :]
-        return MDPD_basic.accuracy(self, data_selected, label)
+    # def accuracy(self, data, label):
+    #     data_selected = data[:, self.features, :]
+    #     return MDPD_basic.accuracy(self, data_selected, label)
 
     def align(self, data, label, features=None):
         """

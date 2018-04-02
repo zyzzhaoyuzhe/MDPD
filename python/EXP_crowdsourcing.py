@@ -134,35 +134,36 @@ def indi_rank(test, label):
                 error[i] += k / (k + 1)
     return np.argsort(error), sorted(error)
 
-### Bird data
+## Bird data
 # folder = '/media/vzhao/Data/crowdsourcing_datasets/bird'
 # train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'bluebird_crowd.txt'))
 # label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'bluebird_truth.txt'))
-
-### Dog Data
-# folder = '/media/vzhao/Data/crowdsourcing_datasets/dog'
-# train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'dog_crowd.txt'))
-# label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'dog_truth.txt'))
 # lock = np.zeros(train.shape[1:])
-# lock[:, -1] = 1
 
-
-## Web Data
-folder = '/media/vzhao/Data/crowdsourcing_datasets/web'
-train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'web_crowd.txt'))
-label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'web_truth.txt'))
+## Dog Data
+folder = '/media/vzhao/Data/crowdsourcing_datasets/dog'
+train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'dog_crowd.txt'))
+label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'dog_truth.txt'))
 lock = np.zeros(train.shape[1:])
 lock[:, -1] = 1
+
+
+# ## Web Data
+# folder = '/media/vzhao/Data/crowdsourcing_datasets/web'
+# train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'web_crowd.txt'))
+# label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'web_truth.txt'))
+# lock = np.zeros(train.shape[1:])
+# lock[:, -1] = 1
 
 # analysys
 features, score = utils.Feature_Selection.MI_feature_ranking(train)
 
 # Feature Selection
-Ntop = 25
+Ntop = 75
 model = MDPD.MDPD()
-model.fit(train, ncomp=5, init='majority', verbose=False, features=features[:Ntop], niter=50, lock=lock)
+model.fit(train, ncomp=5, init='majority', verbose=True, features=features[:Ntop], niter=50, lock=lock)
 model.accuracy(train, label)
-model.MI_residue(train, lock)
+model.MI_residue(train)
 
 
 

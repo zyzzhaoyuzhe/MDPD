@@ -63,8 +63,8 @@ def mstep(logpost, data):
     # a better implementation
     newlogC = logsumexp(logpost[:, np.newaxis, np.newaxis, :], axis=0, b=data[..., np.newaxis]) \
               - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
-    newlogC[np.isneginf(newlogC)] = NINF
-    newlogC -= logsumexp(newlogC, axis=1)[:, np.newaxis, :]
+    log_replace_neginf(newlogC)
+    newlogC -= logsumexp(newlogC, axis=1, keepdims=True)
     # update W
     newlogW = logsumexp(logpost, axis=0) - np.log(nsample)
     return newlogW, newlogC
@@ -89,10 +89,12 @@ class Crowdsourcing_initializer(MDPD_initializer):
         else:
             votes = data_selected.sum(axis=1, dtype=np.float)  # n-r
         log_votes = np.log(votes)
+        # replace -inf with NINF
         log_replace_neginf(log_votes)
         log_votes_sum = logsumexp(log_votes, axis=1, keepdims=True)
+        # normalize log_post
         log_post = log_votes - log_votes_sum
-        return mstep(log_post, data_selected)
+        return mstep(log_post, data)
 
     @classmethod
     def init_spectral(data, ncomp):
