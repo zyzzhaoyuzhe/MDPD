@@ -44,6 +44,8 @@ def log_joint_prob_slice(data, logW_slice, logC_slice):
     :param logC_slice: d - r
     :return: n
     """
+    if data.shape[1] == 0:
+        return np.zeros(data.shape[0]) + logW_slice
     # make sure no -inf in logC
     foo = data * logC_slice[np.newaxis, ...]
     foo = foo.sum(axis=(1, 2))
@@ -72,9 +74,9 @@ def mstep(logpost, data):
 class MDPD_initializer():
     @classmethod
     def init_random(cls, dim, ncomp, nvocab):
-        logW = np.ones(ncomp) / ncomp
-        logC = np.random.random_sample((dim, nvocab, ncomp))
-        logC /= logC.sum(axis=1)[:, np.newaxis, :]
+        logW = np.ones(ncomp) * (- np.log(ncomp))
+        logC = np.log(np.random.uniform(low=0.2, high = 0.8, size = (dim, nvocab, ncomp)))
+        logC = logC - logsumexp(logC, axis=1, keepdims=True)
         return logW, logC
 
 
@@ -156,6 +158,12 @@ class Feature_Selection():
 
     @classmethod
     def MI_feature_ranking(cls, data, lock=None):
+        """
+        Calculate sum_{j} sum_{x_i, x_j} P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j)) and sort
+        :param data:
+        :param lock:
+        :return:
+        """
         score = cls.MI_score(data, rm_diag=True, lock=lock)
         sigma = score.sum(axis=1)
         ranking = np.argsort(sigma, axis=None)[::-1]
@@ -165,7 +173,6 @@ class Feature_Selection():
     def pmi(cls, data):
         """
         calculate P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j))
-        :param data:
         :return: d - r - d - r
         """
         nsample, dim, nvocab = data.shape
@@ -179,6 +186,10 @@ class Feature_Selection():
 
     @classmethod
     def MI_score(cls, data, rm_diag=False, lock=None):
+        """
+        Calculate sum_{x_i, x_j} P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j))
+        :return:
+        """
         pmi = cls.pmi(data)
         if np.any(lock):
             mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0

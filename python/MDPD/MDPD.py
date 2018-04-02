@@ -269,7 +269,7 @@ class MDPD(MDPD_basic, object):
         if init == "majority":
             self.logW, self.logC = utils.Crowdsourcing_initializer.init_mv(data, self.features, rm_last=np.any(self.lock))
         elif init == "random":
-            self.logW, self.logC = utils.init_random(self.dim, self.ncomp, self.nvocab)
+            self.logW, self.logC = utils.Crowdsourcing_initializer.init_random(len(self.features), self.ncomp, self.nvocab)
         elif init == "spectral":
             self.logW, self.logC = utils.init_spectral(data, self.ncomp)
         elif init_label:
@@ -500,7 +500,6 @@ class MDPD2(MDPD_basic):
         ## update the instance parameters
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
-        self.features_comp = [None] * ncomp
         self.Ntop = Ntop
         logger.info(
             "Training an MDPD with dimension %i, %i features, sample size %i, vocab size %i and the target number of components %i",
@@ -508,16 +507,19 @@ class MDPD2(MDPD_basic):
         ## initialize
         if init == 'random':
             self.logW, self.logC = utils.MDPD_initializer.init_random(self.dim, self.ncomp, self.nvocab)
+
+        rank, sigma = utils.Feature_Selection.MI_feature_ranking(data[:1000, ...])
+        self.features_comp = [rank[:Ntop] for _ in xrange(ncomp)]
+
         ## learning
-        nbatch = np.floor(nsample / batch)
-        for _ in xrange(epoch):
+        nbatch = int(nsample / batch)
+        for ep in xrange(epoch):
             # random permutate the data
             data = data[np.random.permutation(data.shape[0]), ...]
             for t in xrange(nbatch):
                 idx_batch = np.arange(t*batch, (t+1)*batch)
-                if t % update_feature_per_batchs == 0:
-                    # update the feature sets
-                    self._update_features_comp()
+                if t % update_feature_per_batchs == 0 and ep + t > 0:
+                    self._update_features_comp(data[idx_batch, ...])
                 self._em(data[idx_batch, ...])
 
     def _update_features_comp(self, data_batch):
@@ -525,7 +527,6 @@ class MDPD2(MDPD_basic):
         score, _ = utils.Feature_Selection.MI_score_conditional(data_batch, log_post, rm_diag=True)
         score = np.sum(score, axis=1)
         for k in xrange(self.ncomp):
-            ranking = np.argsort(score)
             self.features_comp[k] = np.argsort(score[:, k])[::-1][:self.Ntop]
 
     def _em(self, data_batch):
@@ -536,9 +537,9 @@ class MDPD2(MDPD_basic):
 
     def log_posterior(self, data_batch):
         log_joint_prob = []
-        for k in self.ncomp:
+        for k in xrange(self.ncomp):
             features = self.features_comp[k]
-            foo = utils.log_joint_prob_slice(data_batch[:, features, :], self.logW[k], self.logC[..., k])
+            foo = utils.log_joint_prob_slice(data_batch[:, features, :], self.logW[k], self.logC[features, :, k])
             log_joint_prob.append(foo[:, np.newaxis])
         log_joint_prob = np.concatenate(log_joint_prob, axis=1)
         normalizer = logsumexp(log_joint_prob, axis=1, keepdims=True)
