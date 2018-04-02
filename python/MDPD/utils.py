@@ -163,7 +163,11 @@ class Feature_Selection():
 
     @classmethod
     def pmi(cls, data):
-        "The shape of the output: d - r - d - r. r is the size of vocalbulary."
+        """
+        calculate P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j))
+        :param data:
+        :return: d - r - d - r
+        """
         nsample, dim, nvocab = data.shape
         logpost = np.zeros([nsample, 1])
         newlogW, newlogC = mstep(logpost, data)
@@ -188,7 +192,7 @@ class Feature_Selection():
     @classmethod
     def MI_score_conditional(cls, data, log_post, rm_diag=False, lock=None):
         """
-
+        Calculate \sum_{x_i, x_j}P(x_i, x_j|y=k) ln(p(x_i, x_j|y=k) / p(x_i|y=k)p(x_j|y=k)).
         :param data:
         :param log_post: n - c
         :param rm_diag:
@@ -197,7 +201,7 @@ class Feature_Selection():
         """
         ncomp = log_post.shape[1]
         pmi = cls.pmi_conditional(data, log_post)
-        newlogW, newlogC = mstep(log_post, data)
+        newlogW, _ = mstep(log_post, data)
         if np.any(lock):
             mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
             score = np.sum(pmi * mask[..., np.newaxis], axis=(1, 3))
@@ -229,6 +233,12 @@ class Feature_Selection():
 
     @classmethod
     def pmi_conditional(cls, data, log_post):
+        """
+        calculate P(x_i, x_j|y=k) ln(p(x_i, x_j|y=k) / p(x_i|y=k)p(x_j|y=k))
+        :param data:
+        :param log_post:
+        :return:
+        """
         nsample, dim, nvocab = data.shape
         ncomp = log_post.shape[1]
         newlogW, newlogC = mstep(log_post, data)

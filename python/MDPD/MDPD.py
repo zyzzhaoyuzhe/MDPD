@@ -495,15 +495,16 @@ class MDPD2(MDPD_basic):
         super(MDPD2, self).__init__()
         self.features_comp = None   # feature sets per mixture component
 
-    def fit(self, data, ncomp, nfeatures, init='random', batch=100, update_feature_per_batchs=50, epoch=50, verbose=True):
+    def fit(self, data, ncomp, Ntop, init='random', batch=100, update_feature_per_batchs=50, epoch=50, verbose=True):
         "Fit the model to data use independent feature sets for each components. The algorithm will update the feature sets every a number of batches."
         ## update the instance parameters
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
-        self.nfeatures = nfeatures
+        self.features_comp = [None] * ncomp
+        self.Ntop = Ntop
         logger.info(
-            "Training an MDPD with dimension %i, sample size %i, vocab size %i and the target number of components %i",
-            len(self.features), nsample, self.nvocab, self.ncomp)
+            "Training an MDPD with dimension %i, %i features, sample size %i, vocab size %i and the target number of components %i",
+            dim, Ntop, nsample, self.nvocab, self.ncomp)
         ## initialize
         if init == 'random':
             self.logW, self.logC = utils.MDPD_initializer.init_random(self.dim, self.ncomp, self.nvocab)
@@ -519,8 +520,13 @@ class MDPD2(MDPD_basic):
                     self._update_features_comp()
                 self._em(data[idx_batch, ...])
 
-    def _update_features_comp(self):
-        pass
+    def _update_features_comp(self, data_batch):
+        log_post = self.log_posterior(data_batch)
+        score, _ = utils.Feature_Selection.MI_score_conditional(data_batch, log_post, rm_diag=True)
+        score = np.sum(score, axis=1)
+        for k in xrange(self.ncomp):
+            ranking = np.argsort(score)
+            self.features_comp[k] = np.argsort(score[:, k])[::-1][:self.Ntop]
 
     def _em(self, data_batch):
         # E-step
