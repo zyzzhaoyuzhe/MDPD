@@ -1,5 +1,7 @@
 import numpy as np
 import logging
+from tensorflow.examples.tutorials.mnist import input_data
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s : %(levelname)s : %(message)s')
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s : %(levelname)s : %(message)s')
 logger = logging.getLogger(__name__)
@@ -22,7 +24,7 @@ class Crowd_Sourcing_Readers():
         for j, i, label in cache:
             output[j, i, label] = 1
         if np.any(output.sum(axis=2) > 1):
-            raise 'Data Error'
+            raise ValueError
         if np.any(output.sum(axis=2) == 0):
             logger.info('Data has missing values. A new label is created to represent the missing values.')
             output = np.concatenate((output, 1 - output.sum(axis=2, keepdims=True)), axis=2)
@@ -43,3 +45,14 @@ class Crowd_Sourcing_Readers():
             for j, l in cache:
                 output[j] = l
         return output
+
+
+class MNIST_Reader():
+    def __init__(self, folder, binarized=True, threshold=0.5):
+        self.mnist = input_data.read_data_sets(folder, one_hot=False)
+        # training data
+        train = self.mnist.train.images
+        if binarized:
+            train = np.array(train > threshold, dtype=np.int)[..., np.newaxis]
+            self.train = np.concatenate([train, 1 - train], axis=2)
+        self.labels = self.mnist.train.labels
