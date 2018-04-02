@@ -62,9 +62,9 @@ class MDPD_basic(object):
         return lsum.mean()
 
     def log_posterior(self, data):
-        foo = utils.log_joint_prob_fast(data, self._logW, self._logC)
-        lsum = utils.logsumexp(foo, axis=1)
-        return foo - lsum[:, np.newaxis]
+        log_joint = utils.log_joint_prob_fast(data, self._logW, self._logC)
+        normalizer = logsumexp(log_joint, axis=1, keepdims=True)
+        return log_joint - normalizer
 
     def predict(self, data):
         log_post = MDPD_basic.log_posterior(self, data)
@@ -529,3 +529,16 @@ class MDPD2(MDPD_basic):
         self.logW, self.logC = utils.mstep(log_post, data_batch)
 
     def log_posterior(self, data_batch):
+        log_joint_prob = []
+        for k in self.ncomp:
+            features = self.features_comp[k]
+            foo = utils.log_joint_prob_slice(data_batch[:, features, :], self.logW[k], self.logC[..., k])
+            log_joint_prob.append(foo[:, np.newaxis])
+        log_joint_prob = np.concatenate(log_joint_prob, axis=1)
+        normalizer = logsumexp(log_joint_prob, axis=1, keepdims=True)
+        return log_joint_prob - normalizer  
+
+
+
+
+

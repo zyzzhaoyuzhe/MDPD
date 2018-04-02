@@ -19,13 +19,14 @@ def log_joint_prob_fast(data, logW, logC):
     """
     Log joint probability log(P(X,Y))
     :param nsample:
-    :param data:
-    :param logW:
-    :param logC:
-    :return: c-d
+    :param data: n - d - r
+    :param logW: c
+    :param logC: d - r - c
+    :return: n - c
     """
     if data.any() and logC.any():
         foo = data[..., np.newaxis] * logC[np.newaxis, ...]
+        # get nan when 0 * -inf
         foo[np.isnan(foo)] = 0
         foo = foo.sum(axis=(1, 2))
         # foo = np.tensordot(data, logC, axes=[(1, 2), (0, 1)])
@@ -34,6 +35,19 @@ def log_joint_prob_fast(data, logW, logC):
         foo = np.zeros((ncomp, nsample))
     return foo + logW[np.newaxis, :]
 
+
+def log_joint_prob_slice(data, logW_slice, logC_slice):
+    """
+    Log joint Probability log(P(X, Y = c))
+    :param data: n - d - r
+    :param logW_slice: 1
+    :param logC_slice: d - r
+    :return: n
+    """
+    # make sure no -inf in logC
+    foo = data * logC_slice[np.newaxis, ...]
+    foo = foo.sum(axis=(1, 2))
+    return foo + logW_slice
 
 def mstep(logpost, data):
     """
