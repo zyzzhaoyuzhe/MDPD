@@ -134,28 +134,47 @@ def indi_rank(test, label):
                 error[i] += k / (k + 1)
     return np.argsort(error), sorted(error)
 
+
+folder = '/Users/vincent/Documents/Research/MDPD/crowdsourcing_datasets'
 ## Bird data
-# folder = '/media/vzhao/Data/crowdsourcing_datasets/bird'
-# train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'bluebird_crowd.txt'))
-# label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'bluebird_truth.txt'))
-# lock = np.zeros(train.shape[1:])
+reader = Crowd_Sourcing_Readers(os.path.join(folder, 'bird', 'bluebird_crowd.txt'), os.path.join(folder, 'bird', 'bluebird_truth.txt'))
+train, label = reader.data, reader.labels
+lock = np.zeros(train.shape[1:], dtype=np.bool)
 
-## Dog Data
-folder = '/media/vzhao/Data/crowdsourcing_datasets/dog'
-train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'dog_crowd.txt'))
-label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'dog_truth.txt'))
-lock = np.zeros(train.shape[1:])
-lock[:, -1] = 1
-
-
-# ## Web Data
-# folder = '/media/vzhao/Data/crowdsourcing_datasets/web'
-# train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'web_crowd.txt'))
-# label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'web_truth.txt'))
-# lock = np.zeros(train.shape[1:])
+# ## Dog Data
+# train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'dog', 'dog_crowd.txt'))
+# label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'dog', 'dog_truth.txt'))
+# lock = np.zeros(train.shape[1:],dtype=np.bool)
 # lock[:, -1] = 1
 
+
+## Web Data
+# train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'web', 'web_crowd.txt'))
+# label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'web', 'web_truth.txt'))
+# lock = np.zeros(train.shape[1:],dtype=np.bool)
+# lock[:, -1] = 1
+
+## TREC
+train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'trec', 'trec_crowd.txt'))
+label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'trec', 'trec_truth.txt'))
+lock = np.zeros(train.shape[1:],dtype=np.bool)
+lock[:, -1] = 1
+
 # analysys
+# label to log_post
+def label2logpost(label, ncomp):
+    nsample = label.shape[0]
+    post = np.zeros((nsample, ncomp))
+    for i in xrange(nsample):
+        post[i, label[i]] = 1
+    return np.log(post)
+log_post = label2logpost(label,label.max()+1)
+utils.log_replace_neginf(log_post)
+score, weighted = MDPD.utils.Feature_Selection.MI_score_conditional(train, log_post, rm_diag=True, lock=lock)
+sigmas = score.sum(axis=1) * weighted[np.newaxis, :]
+print 'Mutual Information Residue if use the true label as the posterior distribution'
+print np.sum(sigmas) / (dim * (dim - 1))
+
 features, score = utils.Feature_Selection.MI_feature_ranking(train)
 
 # Feature Selection

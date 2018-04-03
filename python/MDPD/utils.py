@@ -178,13 +178,34 @@ class Feature_Selection():
         :return: d - r - d - r
         """
         nsample, dim, nvocab = data.shape
-        logpost = np.zeros([nsample, 1])
-        newlogW, newlogC = mstep(logpost, data)
-        second = 1. / nsample * np.tensordot(data, data, axes=(0, 0))
-        logfirst = np.add.outer(newlogC[:, :, 0], newlogC[:, :, 0])
-        pmi = second * (np.log(second) - logfirst)
-        pmi[second == 0] = 0
-        return pmi
+        log_post = np.zeros((nsample, 1))
+        pmi = cls.pmi_conditional(data, log_post)
+        return pmi[..., 0]
+
+
+    @classmethod
+    def pmi_conditional(cls, data, log_post):
+        """
+        calculate P(x_i, x_j|y=k) ln(p(x_i, x_j|y=k) / p(x_i|y=k)p(x_j|y=k))
+        :param data:
+        :param log_post:
+        :return: d - r - d - r - c
+        """
+        nsample, dim, nvocab = data.shape
+        ncomp = log_post.shape[1]
+        newlogW, newlogC = mstep(log_post, data)
+        post = np.exp(log_post)
+        data_transform = data[:, :, :, np.newaxis] * np.sqrt(post)[:, np.newaxis, np.newaxis, :]
+        cache = []
+        for k in range(ncomp):
+            second = 1. / nsample * np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
+            second = second / np.exp(newlogW[k])
+            log_first = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
+            pmi = second * (np.log(second) - log_first)
+            # pmi[log_first == 0] = 0
+            pmi[second == 0] = 0
+            cache.append(pmi[..., np.newaxis])
+        return np.concatenate(cache, axis=4)
 
     @classmethod
     def MI_score(cls, data, rm_diag=False, lock=None):
@@ -244,43 +265,19 @@ class Feature_Selection():
     #             np.fill_diagonal(score[..., k], 0)
     #     return score, np.exp(newlogW)
 
-    @classmethod
-    def pmi_conditional(cls, data, log_post):
-        """
-        calculate P(x_i, x_j|y=k) ln(p(x_i, x_j|y=k) / p(x_i|y=k)p(x_j|y=k))
-        :param data:
-        :param log_post:
-        :return:
-        """
-        nsample, dim, nvocab = data.shape
-        ncomp = log_post.shape[1]
-        newlogW, newlogC = mstep(log_post, data)
-        post = np.exp(log_post)
-        data_transform = data[:, :, :, np.newaxis] * np.sqrt(post)[:, np.newaxis, np.newaxis, :]
-        cache = []
-        for k in range(ncomp):
-            second = 1. / nsample * np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
-            second = second / np.exp(newlogW[k])
-            log_first = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
-            pmi = second * (np.log(second) - log_first)
-            # pmi[log_first == 0] = 0
-            pmi[second == 0] = 0
-            cache.append(pmi[..., np.newaxis])
-        return np.concatenate(cache, axis=4)
-
-    @classmethod
-    def pmi_conditional_faster(cls, data, log_post):
-        nsample, dim, nvocab = data.shape
-        ncomp = log_post.shape[1]
-        newlogW, newlogC = mstep(log_post, data)
-        data_out = data[..., np.newaxis, np.newaxis, np.newaxis] * data[:, np.newaxis, np.newaxis, :, :, np.newaxis]
-        logpost_reshape = log_post[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis, :]
-        log_first = newlogC[:, :, np.newaxis, np.newaxis, :] + newlogC[np.newaxis, np.newaxis, ...]
-        log_second = logsumexp(logpost_reshape, axis=0, b=data_out) - np.log(nsample) - np.reshape(newlogW,
-                                                                                                   (1, 1, 1, 1, -1))
-        pmi = np.exp(log_second) * (log_second - log_first)
-        pmi[np.isinf(log_second)] = 0
-        return pmi
+    # @classmethod
+    # def pmi_conditional_faster(cls, data, log_post):
+    #     nsample, dim, nvocab = data.shape
+    #     ncomp = log_post.shape[1]
+    #     newlogW, newlogC = mstep(log_post, data)
+    #     data_out = data[..., np.newaxis, np.newaxis, np.newaxis] * data[:, np.newaxis, np.newaxis, :, :, np.newaxis]
+    #     logpost_reshape = log_post[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis, :]
+    #     log_first = newlogC[:, :, np.newaxis, np.newaxis, :] + newlogC[np.newaxis, np.newaxis, ...]
+    #     log_second = logsumexp(logpost_reshape, axis=0, b=data_out) - np.log(nsample) - np.reshape(newlogW,
+    #                                                                                                (1, 1, 1, 1, -1))
+    #     pmi = np.exp(log_second) * (log_second - log_first)
+    #     pmi[np.isinf(log_second)] = 0
+    #     return pmi
 
 
 ################# Utilities ####################

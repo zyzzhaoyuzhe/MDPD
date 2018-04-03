@@ -8,6 +8,32 @@ logger = logging.getLogger(__name__)
 logger.setLevel(10)
 
 class Crowd_Sourcing_Readers():
+    def __init__(self, crowd_file, label_file):
+        crowd_cache = self.read_data(crowd_file)
+        truth_cache = self.read_label(label_file)
+        crowd_item = set(row[0] for row in crowd_cache)
+        crowd_worker = set(row[1] for row in crowd_cache)
+        crowd_response = set(row[2] for row in crowd_cache)
+        truth_item = set(row[0] for row in truth_cache)
+        intersect = sorted(crowd_item.intersection(truth_item))
+        item2idx = dict(zip(intersect, range(len(intersect))))
+        crowd2idx = dict(zip(sorted(crowd_worker), range(len(crowd_worker))))
+        nsample, dim , nvocab = len(item2idx), len(crowd2idx), len(crowd_response)
+        data = np.zeros((nsample, dim, nvocab), dtype=np.int)
+        for j, i, l in crowd_cache:
+            if j in item2idx and i in crowd2idx:
+                data[item2idx[j], crowd2idx[i], l] = 1
+        if np.any(data.sum(axis=2) > 1):
+            raise ValueError
+        if np.any(data.sum(axis=2) == 0):
+            logger.info('Data has missing values. A new label is created to represent the missing values.')
+            data = np.concatenate((data, 1-data.sum(axis=2, keepdims=True)), axis=2)
+        labels = np.zeros(nsample, dtype=np.int)
+        for j, l in truth_cache:
+            if j in item2idx:
+                labels[item2idx[j]] = l
+        self.data, self.labels = data, labels
+
     @staticmethod
     def read_data(file):
         """Read crowdsourcing data"""
@@ -20,16 +46,7 @@ class Crowd_Sourcing_Readers():
                 i_max = max(i_max, i + 1)
                 label_max = max(label_max, label + 1)
                 cache.append((j, i, label))
-        output = np.zeros([j_max, i_max, label_max], dtype=np.int)
-        for j, i, label in cache:
-            output[j, i, label] = 1
-        if np.any(output.sum(axis=2) > 1):
-            raise ValueError
-        if np.any(output.sum(axis=2) == 0):
-            logger.info('Data has missing values. A new label is created to represent the missing values.')
-            output = np.concatenate((output, 1 - output.sum(axis=2, keepdims=True)), axis=2)
-        logger.info('The Data has {} dimensions, {} samples, and {} volcabulary size.'.format(output.shape[1], output.shape[0], output.shape[2]))
-        return output
+        return cache
 
     @staticmethod
     def read_label(file):
@@ -41,11 +58,7 @@ class Crowd_Sourcing_Readers():
                 j_max = max(j_max, j + 1)
                 l_max = max(l_max, l + 1)
                 cache.append((j, l))
-            output = np.zeros(j_max, dtype=np.int)
-            for j, l in cache:
-                output[j] = l
-        return output
-
+        return cache
 
 class MNIST_Reader():
     def __init__(self, folder, binarized=True, threshold=0.5):
