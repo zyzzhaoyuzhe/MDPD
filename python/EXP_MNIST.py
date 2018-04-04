@@ -19,7 +19,7 @@ features, sigma = utils.Feature_Selection.MI_feature_ranking(train[:1000,...])
 Ntop = 200
 
 model1 = MDPD.MDPD()
-model1.fit(train, ncomp=10, init='random', verbose=False, features=features[:Ntop], niter=50)
+model1.fit(train, ncomp=10, init='random', verbose=False, features=features[:Ntop], epoch=50)
 
 # MDPD model
 

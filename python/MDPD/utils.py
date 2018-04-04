@@ -73,7 +73,7 @@ def mstep(logpost, data):
 ################# Initializer ####################
 class MDPD_initializer():
     @classmethod
-    def init_random(cls, dim, ncomp, nvocab):
+    def init_random_uniform(cls, dim, ncomp, nvocab):
         logW = np.ones(ncomp) * (- np.log(ncomp))
         logC = np.log(np.random.uniform(low=0.2, high = 0.8, size = (dim, nvocab, ncomp)))
         logC = logC - logsumexp(logC, axis=1, keepdims=True)

@@ -77,7 +77,7 @@ def one_epoch(sparse):
     print "majority Vote EM"
     model_mv = MDPD.MDPD()
     model_mv.get_config((m, n, num_component, num_component))
-    rec = model_mv.fit(train, init='majority', stopcrit='number of iterations', niter=n_iter, track=True, display=False)
+    rec = model_mv.fit(train, init='majority', stopcrit='number of iterations', epoch=n_iter, track=True, display=False)
     model_mv = misc.align(truemodel, model_mv)
 
     majority = {}
@@ -89,7 +89,7 @@ def one_epoch(sparse):
     try:
         model_stage = MDPD.MDPD()
         model_stage.get_config((m, n, num_component, num_component))
-        rec = model_stage.fit(train, init='StageEM', stopcrit='number of iterations', niter=n_iter, track=True, display=False)
+        rec = model_stage.fit(train, init='StageEM', stopcrit='number of iterations', epoch=n_iter, track=True, display=False)
         model_stage = misc.align(truemodel, model_stage)
 
         stageEM = {}

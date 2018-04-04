@@ -242,7 +242,7 @@ class MDPD(MDPD_basic, object):
     def fit(self, data, ncomp,
             features=None, init="majority",
             init_label=None, init_para=None,
-            niter=30, verbose=True, lock=None):
+            epoch=30, verbose=True, lock=None):
         """
         Fit the model to training data.
         :param data: numpy array, shape = (nsample, dim, nvocab)
@@ -251,7 +251,7 @@ class MDPD(MDPD_basic, object):
         :param init:
         :param init_label:
         :param init_para:
-        :param niter:
+        :param epoch:
         :param verbose:
         :return:
         """
@@ -261,7 +261,7 @@ class MDPD(MDPD_basic, object):
         self.features = features if features is not None else range(dim)
         self.lock = np.array(lock, dtype=np.bool) if lock is not None else np.zeros((dim, nvocab), dtype=np.bool)
         logger.info(
-            "Training an MDPD with dimension %i, $i features, sample size %i, vocab size %i and the target number of components %i",
+            "Training an MDPD with dimension %i, %i features, sample size %i, vocab size %i and the target number of components %i",
             self.dim, len(self.features), nsample, self.nvocab, self.ncomp)
         ## initialize
         if sum(map(bool, [init, init_label, init_para])) != 1:
@@ -269,7 +269,7 @@ class MDPD(MDPD_basic, object):
         if init == "majority":
             self.logW, self.logC = utils.Crowdsourcing_initializer.init_mv(data, self.features, rm_last=np.any(self.lock))
         elif init == "random":
-            self.logW, self.logC = utils.Crowdsourcing_initializer.init_random(len(self.features), self.ncomp, self.nvocab)
+            self.logW, self.logC = utils.Crowdsourcing_initializer.init_random_uniform(dim, self.ncomp, self.nvocab)
         elif init == "spectral":
             self.logW, self.logC = utils.init_spectral(data, self.ncomp)
         elif init_label:
@@ -280,7 +280,7 @@ class MDPD(MDPD_basic, object):
             raise ValueError('No valid initialization.')
         self._apply_lock(data)
         # statistics
-        self._em_wrapper(data, niter, verbose=verbose)
+        self._em_wrapper(data, epoch, verbose=verbose)
 
     def _em(self, data):
         """
@@ -448,7 +448,7 @@ class MDPD2(MDPD_basic):
             dim, Ntop, nsample, self.nvocab, self.ncomp)
         ## initialize
         if init == 'random':
-            self.logW, self.logC = utils.MDPD_initializer.init_random(self.dim, self.ncomp, self.nvocab)
+            self.logW, self.logC = utils.MDPD_initializer.init_random_uniform(self.dim, self.ncomp, self.nvocab)
 
         rank, sigma = utils.Feature_Selection.MI_feature_ranking(data[:1000, ...])
         self.features_comp = [rank[:Ntop] for _ in xrange(ncomp)]

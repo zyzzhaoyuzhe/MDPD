@@ -32,7 +32,7 @@ print np.min(MI+np.eye(100))
 print "\nStage EM"
 SEM = MDPD.MDPD()
 SEM.get_config((m, n, c, c))
-rec = SEM.fit(train, init='StageEM', stopcrit='number of iterations', niter=20, track=True, display=True)
+rec = SEM.fit(train, init='StageEM', stopcrit='number of iterations', epoch=20, track=True, display=True)
 SEM = misc.align(truemodel, SEM)
 
 disp.show_rec(rec)
@@ -56,7 +56,7 @@ print 'MV only error rate: {0:.2%}'.format(err)
 
 model_majority = MDPD.MDPD()
 model_majority.get_config((m, n, c, c))
-foo = model_majority.fit(train, init='majority', stopcrit='number of iterations', niter=50, track=True, display=False)
+foo = model_majority.fit(train, init='majority', stopcrit='number of iterations', epoch=50, track=True, display=False)
 model_majority = misc.align(truemodel, model_majority)
 
 model_majority.predict(train, subset=range(model_majority.m), label=label)
