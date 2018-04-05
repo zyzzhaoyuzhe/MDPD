@@ -134,8 +134,8 @@ def indi_rank(test, label):
                 error[i] += k / (k + 1)
     return np.argsort(error), sorted(error)
 
-
-folder = '/Users/vincent/Documents/Research/MDPD/crowdsourcing_datasets'
+folder = '/media/vzhao/Data/crowdsourcing_datasets/'
+# folder = '/Users/vincent/Documents/Research/MDPD/crowdsourcing_datasets'
 ## Bird data
 # reader = Crowd_Sourcing_Readers(os.path.join(folder, 'bird', 'bluebird_crowd.txt'), os.path.join(folder, 'bird', 'bluebird_truth.txt'))
 # train, label = reader.data, reader.labels
@@ -161,7 +161,9 @@ lock[:, -1] = 1
 # lock[:, -1] = 1
 
 # analysys
-features, score = utils.Feature_Selection.MI_feature_ranking(train)
+score_origin = utils.Feature_Selection.MI_score(train, rm_diag=True, lock=lock)
+
+features, score = utils.Feature_Selection.MI_feature_ranking(train, lock=lock)
 Ntop = 40
 model = MDPD.MDPD()
 model.fit(train, ncomp=5, init='majority', verbose=False, features=features[:Ntop], epoch=50, lock=lock)

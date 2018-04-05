@@ -12,6 +12,7 @@ import tensor_power as tp
 import time
 
 NINF = np.finfo('f').min
+PESP = np.finfo('f').eps
 
 
 ################# Inference ####################
@@ -172,19 +173,19 @@ class Feature_Selection():
         return ranking, sigma[ranking]
 
     @classmethod
-    def pmi(cls, data):
+    def pmi(cls, data, lock=None):
         """
         calculate P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j))
         :return: d - r - d - r
         """
         nsample, dim, nvocab = data.shape
         log_post = np.zeros((nsample, 1))
-        pmi = cls.pmi_conditional(data, log_post)
+        pmi = cls.pmi_conditional(data, log_post, lock=lock)
         return pmi[..., 0]
 
 
     @classmethod
-    def pmi_conditional(cls, data, log_post):
+    def pmi_conditional(cls, data, log_post, lock=None):
         """
         calculate P(x_i, x_j|y=k) ln(p(x_i, x_j|y=k) / p(x_i|y=k)p(x_j|y=k))
         :param data:
@@ -201,9 +202,24 @@ class Feature_Selection():
             second = 1. / nsample * np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
             second = second / np.exp(newlogW[k])
             log_first = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
-            pmi = second * (np.log(second) - log_first)
+            #
+            if np.any(lock):
+                mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
+                # scaled log_first
+                const = logsumexp(log_first, axis=(1, 3), keepdims=True, b=mask)
+                log_first_scaled = log_first - const
+                # scaled log_second
+                second += PESP
+                second_masked = second * mask
+                log_second_scaled = np.log(second) - np.log(np.sum(second_masked))
+                log_replace_neginf(log_second_scaled)
+                second_masked /= np.sum(second_masked, axis=(1, 3), keepdims=True)
+                pmi = second_masked * (log_second_scaled - log_first_scaled)
+            else:
+                log_second = np.log(second)
+                pmi = second * (log_second - log_first)
             # pmi[log_first == 0] = 0
-            pmi[second == 0] = 0
+            # pmi[second == 0] = 0
             cache.append(pmi[..., np.newaxis])
         return np.concatenate(cache, axis=4)
 
@@ -213,12 +229,15 @@ class Feature_Selection():
         Calculate sum_{x_i, x_j} P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j))
         :return:
         """
-        pmi = cls.pmi(data)
-        if np.any(lock):
-            mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
-            score = np.sum(pmi * mask, axis=(1, 3))
-        else:
-            score = pmi.sum(axis=(1, 3))
+        pmi = cls.pmi(data, lock=lock)
+        score = pmi.sum(axis=(1, 3))
+        #
+        # pmi = cls.pmi(data)
+        # if np.any(lock):
+        #     mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
+        #     score = np.sum(pmi * mask, axis=(1, 3))
+        # else:
+        #     score = pmi.sum(axis=(1, 3))
         if rm_diag:
             np.fill_diagonal(score, 0)
         return score
@@ -234,15 +253,16 @@ class Feature_Selection():
         :return: d - d - c, c
         """
         ncomp = log_post.shape[1]
-        pmi = cls.pmi_conditional(data, log_post)
+        pmi = cls.pmi_conditional(data, log_post, lock=lock)
         newlogW, _ = mstep(log_post, data)
-        if np.any(lock):
-            mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
-            score = np.sum(pmi * mask[..., np.newaxis], axis=(1, 3))
-        else:
-            score = np.sum(pmi, axis=(1, 3))
-        for k in xrange(ncomp):
-            if rm_diag:
+        score = np.sum(pmi, axis=(1, 3))
+        # if np.any(lock):
+        #     mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
+        #     score = np.sum(pmi * mask[..., np.newaxis], axis=(1, 3))
+        # else:
+        #     score = np.sum(pmi, axis=(1, 3))
+        if rm_diag:
+            for k in xrange(ncomp):
                 np.fill_diagonal(score[..., k], 0)
         return score, np.exp(newlogW)
 
