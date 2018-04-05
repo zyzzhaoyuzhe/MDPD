@@ -201,21 +201,30 @@ class Feature_Selection():
         for k in range(ncomp):
             second = 1. / nsample * np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
             second = second / np.exp(newlogW[k])
-            log_first = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
+            second += PESP
             #
             if np.any(lock):
                 mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
-                # scaled log_first
-                const = logsumexp(log_first, axis=(1, 3), keepdims=True, b=mask)
-                log_first_scaled = log_first - const
                 # scaled log_second
-                second += PESP
                 second_masked = second * mask
-                log_second_scaled = np.log(second) - np.log(np.sum(second_masked))
-                log_replace_neginf(log_second_scaled)
                 second_masked /= np.sum(second_masked, axis=(1, 3), keepdims=True)
+                log_second_scaled = np.log(second_masked)
+                log_replace_neginf(log_second_scaled)
+                # scaled log_first P(x_i|y, x_i x_k \neq missing label)
+                log_first_scaled = logsumexp(log_second_scaled, axis=3)
+                log_first_scaled = log_first_scaled[..., np.newaxis] + np.moveaxis(log_first_scaled, (0,1,2), (1,2,0))[:, np.newaxis,...]
+
+                # first_masked = np.sum(second_masked, axis=3)
+                # log_first_scaled = np.log(first_masked[..., np.newaxis] * np.moveaxis(first_masked, (0,1,2,), (1,2,0))[:, np.newaxis,...])
+                #
+                #
+                #
+                #
+                # const = logsumexp(log_first, axis=(1, 3), keepdims=True, b=mask)
+                # log_first_scaled = log_first - const
                 pmi = second_masked * (log_second_scaled - log_first_scaled)
             else:
+                log_first = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
                 log_second = np.log(second)
                 pmi = second * (log_second - log_first)
             # pmi[log_first == 0] = 0

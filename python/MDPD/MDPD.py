@@ -215,13 +215,13 @@ class MDPD(MDPD_basic, object):
     def MI_residue(self, data):
         log_post = self.log_posterior(data)
         score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=self.lock)
-        res = np.sum(score.sum(axis=1) * weights) / (self.dim * (self.dim - 1))
-        logger.info('The mutual information residue is {}'.format(res))
+        res = np.sum(score.sum(axis=1) * weights[np.newaxis, :]) / (self.dim * (self.dim - 1))
+        logger.info('The mutual information residue (include all features) is {}'.format(res))
 
         features = np.array(self.features)
-        score_select = score[features[:, np.newaxis], features]
-        res_select = np.sum(score_select.sum(axis=1) * weights) / (len(features) * (len(features) - 1))
-        logger.info('The mutual information residue of the feature set is {}'.format(res_select))
+        score_select = score[features[:, np.newaxis], features, :]
+        res_select = np.sum(score_select.sum(axis=1) * weights[np.newaxis, :]) / (len(features) * (len(features) - 1))
+        logger.info('The mutual information residue (within selected features) is {}'.format(res_select))
 
     def _apply_lock(self, data):
         "Apply the lock to worker i for the component k, so that i is not discriminant at k."

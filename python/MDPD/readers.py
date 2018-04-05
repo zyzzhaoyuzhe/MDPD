@@ -9,6 +9,7 @@ logger.setLevel(10)
 
 class Crowd_Sourcing_Readers():
     def __init__(self, crowd_file, label_file):
+        self.is_missing_value = False
         crowd_cache = self.read_data(crowd_file)
         truth_cache = self.read_label(label_file)
         crowd_item = set(row[0] for row in crowd_cache)
@@ -27,6 +28,7 @@ class Crowd_Sourcing_Readers():
             raise ValueError
         if np.any(data.sum(axis=2) == 0):
             logger.info('Data has missing values. A new label is created to represent the missing values.')
+            self.is_missing_value = True
             data = np.concatenate((data, 1-data.sum(axis=2, keepdims=True)), axis=2)
         labels = np.zeros(nsample, dtype=np.int)
         for j, l in truth_cache:

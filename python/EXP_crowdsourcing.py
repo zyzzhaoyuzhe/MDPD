@@ -134,25 +134,27 @@ def indi_rank(test, label):
                 error[i] += k / (k + 1)
     return np.argsort(error), sorted(error)
 
-folder = '/media/vzhao/Data/crowdsourcing_datasets/'
-# folder = '/Users/vincent/Documents/Research/MDPD/crowdsourcing_datasets'
-## Bird data
+# folder = '/media/vzhao/Data/crowdsourcing_datasets/'
+folder = '/Users/vincent/Documents/Research/MDPD/crowdsourcing_datasets'
+
+# ## Bird data
 # reader = Crowd_Sourcing_Readers(os.path.join(folder, 'bird', 'bluebird_crowd.txt'), os.path.join(folder, 'bird', 'bluebird_truth.txt'))
 # train, label = reader.data, reader.labels
 # lock = np.zeros(train.shape[1:], dtype=np.bool)
 
-## Dog Data
-reader = Crowd_Sourcing_Readers(os.path.join(folder, 'dog', 'dog_crowd.txt'), os.path.join(folder, 'dog', 'dog_truth.txt'))
-train, label = reader.data, reader.labels
-lock = np.zeros(train.shape[1:],dtype=np.bool)
-lock[:, -1] = 1
+# ## Dog Data
+# reader = Crowd_Sourcing_Readers(os.path.join(folder, 'dog', 'dog_crowd.txt'), os.path.join(folder, 'dog', 'dog_truth.txt'))
+# train, label = reader.data, reader.labels
+# lock = np.zeros(train.shape[1:],dtype=np.bool)
+# lock[:, -1] = 1
 
 
 ## Web Data
-# train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'web', 'web_crowd.txt'))
-# label = Crowd_Sourcing_Readers.read_label(os.path.join(folder, 'web', 'web_truth.txt'))
-# lock = np.zeros(train.shape[1:],dtype=np.bool)
-# lock[:, -1] = 1
+reader = Crowd_Sourcing_Readers(os.path.join(folder, 'web', 'web_crowd.txt'), os.path.join(folder, 'web', 'web_truth.txt'))
+train, label = reader.data, reader.labels
+lock = np.zeros(train.shape[1:],dtype=np.bool)
+lock[:, -1] = 1
+print train.shape
 
 ## TREC
 # train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'trec', 'trec_crowd.txt'))
@@ -164,7 +166,7 @@ lock[:, -1] = 1
 score_origin = utils.Feature_Selection.MI_score(train, rm_diag=True, lock=lock)
 
 features, score = utils.Feature_Selection.MI_feature_ranking(train, lock=lock)
-Ntop = 40
+Ntop = 15
 model = MDPD.MDPD()
 model.fit(train, ncomp=5, init='majority', verbose=False, features=features[:Ntop], epoch=50, lock=lock)
 model.accuracy(train, label)
