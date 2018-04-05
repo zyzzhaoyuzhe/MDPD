@@ -10,11 +10,27 @@ from MDPD import utils, readers
 
 
 folder = "/media/vzhao/Data/MNIST"
+# folder = "/Users/vincent/Documents/Research/MDPD/MNIST"
 mnist = readers.MNIST_Reader(folder, binarized=True)
-
 train, labels = mnist.train, mnist.labels
+_, dim, _ = train.shape
+# data per digit
+train_uni = [None] * 10
+for dig in xrange(10):
+    train_uni[dig] = train[labels==dig,...]
+# small sample
+train_small = train[:5000,...]
+labels_small = labels[:5000]
+
+data, labs = train_small, labels_small
 
 # MDPD model1
+score_origin = utils.Feature_Selection.MI_score(data, rm_diag=True)
+
+
+
+
+
 features, sigma = utils.Feature_Selection.MI_feature_ranking(train[:1000,...])
 Ntop = 200
 

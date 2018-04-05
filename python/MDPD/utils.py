@@ -201,11 +201,11 @@ class Feature_Selection():
         for k in range(ncomp):
             second = 1. / nsample * np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
             second = second / np.exp(newlogW[k])
-            second += PESP
             #
             if np.any(lock):
                 mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
                 # scaled log_second
+                second += PESP
                 second_masked = second * mask
                 second_masked /= np.sum(second_masked, axis=(1, 3), keepdims=True)
                 log_second_scaled = np.log(second_masked)
@@ -227,8 +227,8 @@ class Feature_Selection():
                 log_first = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
                 log_second = np.log(second)
                 pmi = second * (log_second - log_first)
+                pmi[second == 0] = 0
             # pmi[log_first == 0] = 0
-            # pmi[second == 0] = 0
             cache.append(pmi[..., np.newaxis])
         return np.concatenate(cache, axis=4)
 
