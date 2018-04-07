@@ -6,6 +6,7 @@ Basic MDPD class is defined in this module which is composed of basic functions.
 """
 from __future__ import division
 
+import warnings
 import cPickle
 import copy
 import itertools
@@ -241,7 +242,7 @@ class MDPD(MDPD_basic, object):
 
     def fit(self, data, ncomp,
             features=None, init="majority",
-            init_label=None, init_para=None,
+            init_label=None, init_para=None, batch=None, update_feature_per_batches=None,
             epoch=30, verbose=True, lock=None):
         """
         Fit the model to training data.
@@ -258,12 +259,36 @@ class MDPD(MDPD_basic, object):
         ## update instance variables
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
-        self.features = features if features is not None else range(dim)
+        # initiate features
+        if features is None:
+            self.features = range(dim)
+            if update_feature_per_batches is not None:
+                warnings.warn('update_feature_per_batchs is ignored, because features is set to None.')
+                update_feature_per_batches = None
+        elif isinstance(features, list):
+            self.features = features
+            if update_feature_per_batches is not None:
+                warnings.warn('update_feature_per_batchs is ignored, because features is pre-set.')
+                update_feature_per_batches = None
+        elif isinstance(features, int):
+            # features means select top Ntop features
+            cand, _ = utils.Feature_Selection.MI_feature_ranking(data, lock=lock)
+            self.features = cand[:features]
+        else:
+            raise ValueError('features should be None, list of int, or int.')
+        # check batch size
+        if batch > data.shape[0]:
+            warnings.warn('batch is ignored, because it is larger than the sample size')
+            batch = None
+        if batch is None and update_feature_per_batches is not None:
+            warnings.warn('update_feature_per_batchs is ignored, because batch is not set to a valid value.')
+            update_feature_per_batches = None
+        # self.features = features if features is not None else range(dim)
         self.lock = np.array(lock, dtype=np.bool) if lock is not None else np.zeros((dim, nvocab), dtype=np.bool)
         logger.info(
             "Training an MDPD with dimension %i, %i features, sample size %i, vocab size %i and the target number of components %i",
             self.dim, len(self.features), nsample, self.nvocab, self.ncomp)
-        ## initialize
+        ## initialize parameters
         if sum(map(bool, [init, init_label, init_para])) != 1:
             raise ValueError('Use one and only one of init, init_label, init_para.')
         if init == "majority":
@@ -279,8 +304,7 @@ class MDPD(MDPD_basic, object):
         else:
             raise ValueError('No valid initialization.')
         self._apply_lock(data)
-        # statistics
-        self._em_wrapper(data, epoch, verbose=verbose)
+        self._em_wrapper(data, epoch, batch, update_feature_per_batches, verbose=verbose)
 
     def _em(self, data):
         """
@@ -288,17 +312,36 @@ class MDPD(MDPD_basic, object):
         :param data:
         :return:
         """
-        # E-step with selected features
+        # E-step
         log_post = self.log_posterior(data)
         # M-step (full M-step)
         self.logW, self.logC = utils.mstep(log_post, data)
         self._apply_lock(data)
 
-    def _em_wrapper(self, data, niter, verbose=False):
-        for count in xrange(niter):
-            self._em(data)
+
+
+    def _em_wrapper(self, data, epoch, batch, update_feature_per_batches, verbose=False):
+        "EM iteration wrapper used for verbose output and etc."
+        nsample = data.shape[0]
+        if batch is not None:
+            nbatch = int(nsample / batch)
+        for ep in xrange(epoch):
+            if batch is not None:
+                data_rand = data[np.random.permutation(nsample), ...]
+                for ba in xrange(nbatch):
+                    # update the feature set
+                    if update_feature_per_batches is not None and ba % update_feature_per_batches == 0 and ba+ep > 0:
+                        log_post = self.log_posterior(data)
+                        score, weighted = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True)
+                        sigma = np.sum(score.sum(axis=1) * weighted[np.newaxis, :], axis=1)
+                        cand = np.argsort(sigma)[::-1]
+                        self.features = cand[:len(self.features)]
+                    #
+                    self._em(data_rand[ba * batch : (ba+1) * batch, ...])
+            else:
+                self._em(data)
             if verbose:
-                logger.info("iteration %d; log-likelihood (feature selection) %f; log_likelihood %f", count, self.log_likelihood(data), super(MDPD, self).log_likelihood(data))
+                logger.info("Epoch %d; log-likelihood (feature selection) %f; log_likelihood %f", ep, self.log_likelihood(data), super(MDPD, self).log_likelihood(data))
 
     # def reset(self, data):
     #     self.feature_set = []
@@ -437,7 +480,7 @@ class MDPD2(MDPD_basic):
         super(MDPD2, self).__init__()
         self.features_comp = None   # feature sets per mixture component
 
-    def fit(self, data, ncomp, Ntop, init='random', batch=100, update_feature_per_batchs=50, epoch=50, verbose=True):
+    def fit(self, data, ncomp, Ntop, init='random', batch=100, update_feature_per_batches=50, epoch=50, verbose=True):
         "Fit the model to data use independent feature sets for each components. The algorithm will update the feature sets every a number of batches."
         ## update the instance parameters
         nsample, dim, nvocab = data.shape
@@ -460,7 +503,7 @@ class MDPD2(MDPD_basic):
             data = data[np.random.permutation(data.shape[0]), ...]
             for t in xrange(nbatch):
                 idx_batch = np.arange(t*batch, (t+1)*batch)
-                if t % update_feature_per_batchs == 0 and ep + t > 0:
+                if t % update_feature_per_batches == 0 and ep + t > 0:
                     self._update_features_comp(data[idx_batch, ...])
                 self._em(data[idx_batch, ...])
 
