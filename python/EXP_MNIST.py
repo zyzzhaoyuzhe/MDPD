@@ -1,16 +1,15 @@
 import time
 import scipy.io as scio
-from MDPD import *
 import numpy as np
 from multiprocessing import Pool
 import sys
 from copy import copy
 import matplotlib.pyplot as plt
-from MDPD import utils, readers
+from MDPD import utils, readers, MDPD
 
 
-folder = "/media/vzhao/Data/MNIST"
-# folder = "/Users/vincent/Documents/Research/MDPD/MNIST"
+# folder = "/media/vzhao/Data/MNIST"
+folder = "/Users/vincent/Documents/Research/MDPD/MNIST"
 mnist = readers.MNIST_Reader(folder, binarized=True)
 train, labels = mnist.train, mnist.labels
 _, dim, _ = train.shape
@@ -24,18 +23,16 @@ labels_small = labels[:5000]
 
 data, labs = train_small, labels_small
 
-# MDPD model1
-score_origin = utils.Feature_Selection.MI_score(data, rm_diag=True)
-
-
-
-
-
-features, sigma = utils.Feature_Selection.MI_feature_ranking(train[:1000,...])
+#########################
 Ntop = 200
+model = MDPD.MDPD_online()
+model.fit(data, ncomp=10,
+          features=Ntop, init='random',
+          epoch=50, batch=500, update_features_per_batch=10,
+          verbose=False)
 
-model1 = MDPD.MDPD()
-model1.fit(train, ncomp=10, init='random', verbose=False, features=features[:Ntop], epoch=50)
+
+
 
 # MDPD model
 

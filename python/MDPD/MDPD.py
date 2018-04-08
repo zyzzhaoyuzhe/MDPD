@@ -12,7 +12,7 @@ import itertools
 import logging
 import numpy as np
 from copy import deepcopy
-from scipy.misc import logsumexp
+from utils import logsumexp
 
 import utils
 
@@ -241,6 +241,7 @@ class MDPD_standard(MDPD_basic):
             self.logC = newlogC
 
     def _model_init(self, data, init, init_label, init_para):
+        "initialize logW and logC."
         nsample, dim, nvocab = data.shape
         if isinstance(init, basestring):
             if init == "majority":
@@ -499,6 +500,7 @@ class MDPD_online(MDPD_standard):
         if batch is None:
             self._em_wrapper(data, epoch, None, verbose=verbose)
         else:
+            self._log_post = self.log_posterior(data)
             self._em_online_wrapper(data, epoch, batch, update_features_per_batch, verbose=verbose)
 
     def _em_online(self, data, batch_index):
@@ -517,7 +519,7 @@ class MDPD_online(MDPD_standard):
             for nb in xrange(nbatch):
                 if update_features_per_batch is not None and nb % update_features_per_batch == 0 and ep + nb > 0:
                     self._update_features(data)
-                self._em_online(data, data_idx_rand[nb * nbatch : (nb + 1) * nbatch])
+                self._em_online(data, data_idx_rand[nb * batch : (nb + 1) * batch])
             if verbose:
                 self._verbose_printer(ep, data)
 
