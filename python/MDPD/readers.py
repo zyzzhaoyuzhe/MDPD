@@ -71,9 +71,3 @@ class MNIST_Reader():
             train = np.array(train > threshold, dtype=np.int)[..., np.newaxis]
             self.train = np.concatenate([train, 1 - train], axis=2)
         self.labels = self.mnist.train.labels
-
-class Synthetic_Data(object):
-    #TODO: add synthetic data
-    pass
-
-
