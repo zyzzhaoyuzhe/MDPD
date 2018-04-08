@@ -206,7 +206,7 @@ class MDPD_basic(object):
             #     self.trace = [item for i, item in enumerate(self.trace) if i not in cord_list]
 
 
-class MDPD_standard(MDPD_basic, object):
+class MDPD_standard(MDPD_basic):
     """MDPD model with batch EM + Feature Selection"""
     def __init__(self):
         super(MDPD_standard, self).__init__()
@@ -240,8 +240,27 @@ class MDPD_standard(MDPD_basic, object):
             newlogC[lock_broadcast] = np.broadcast_to(log_margin_prob[..., np.newaxis], newlogC.shape)[lock_broadcast]
             self.logC = newlogC
 
+    def _model_init(self, data, init, init_label, init_para):
+        nsample, dim, nvocab = data.shape
+        if isinstance(init, basestring):
+            if init == "majority":
+                self.logW, self.logC = utils.Crowdsourcing_initializer.init_mv(data, self.features,
+                                                                               rm_last=np.any(self.lock))
+            elif init == "random":
+                self.logW, self.logC = utils.Crowdsourcing_initializer.init_random_uniform(dim, self.ncomp, self.nvocab)
+            elif init == "spectral":
+                self.logW, self.logC = utils.init_spectral(data, self.ncomp)
+            else:
+                raise ValueError('init is not valid. It needs to one of "majority", "random", and "spectral"')
+        elif isinstance(init_label, np.ndarray):
+            self.logW, self.logC = utils.mstep(init_label, data[:, self.features, :])
+        elif isinstance(init_para, (tuple,list)):
+            self.logW, self.logC = init_para
+        else:
+            raise ValueError('No valid initialization.')
+
     def fit(self, data, ncomp,
-            features=None, init="majority",
+            features=None, init=None,
             init_label=None, init_para=None,
             epoch=30, update_features_per_epoch=None,
             verbose=True, lock=None):
@@ -257,10 +276,9 @@ class MDPD_standard(MDPD_basic, object):
         :param verbose:
         :return:
         """
-        ## update instance variables
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
-        # initialized features
+        # initiate features
         if features is None:
             self.features = range(dim)
         elif isinstance(features, (list, np.ndarray)):
@@ -275,32 +293,14 @@ class MDPD_standard(MDPD_basic, object):
         logger.info(
             "Training an MDPD with dimension %i, %i features, sample size %i, vocab size %i and the target number of components %i",
             self.dim, len(self.features), nsample, self.nvocab, self.ncomp)
-        ## initialize
-        if sum(map(bool, [init, init_label, init_para])) != 1:
-            raise ValueError('Use one and only one of init, init_label, init_para.')
-        if init == "majority":
-            self.logW, self.logC = utils.Crowdsourcing_initializer.init_mv(data, self.features, rm_last=np.any(self.lock))
-        elif init == "random":
-            self.logW, self.logC = utils.Crowdsourcing_initializer.init_random_uniform(dim, self.ncomp, self.nvocab)
-        elif init == "spectral":
-            self.logW, self.logC = utils.init_spectral(data, self.ncomp)
-        elif init_label:
-            self.logW, self.logC = utils.mstep(init_label, data[:, self.features, :])
-        elif init_para:
-            self.logW, self.logC = init_para
-        else:
-            raise ValueError('No valid initialization.')
+        self._model_init(data, init, init_label, init_para)
         self._apply_lock(data)
         # statistics
         self._em_wrapper(data, epoch, update_features_per_epoch, verbose=verbose)
 
     def _em(self, data):
-        """
-        One step EM iteration
-        :param data:
-        :return:
-        """
-        # E-step with selected features
+        """One step EM iteration"""
+        # E-step
         log_post = self.log_posterior(data)
         # M-step (full M-step)
         self.logW, self.logC = utils.mstep(log_post, data)
@@ -309,14 +309,22 @@ class MDPD_standard(MDPD_basic, object):
     def _em_wrapper(self, data, epoch, update_features_per_epoch, verbose=False):
         for ep in xrange(epoch):
             if ep > 0 and update_features_per_epoch is not None and ep % update_features_per_epoch == 0:
-                log_post = self.log_posterior(data)
-                score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=self.lock)
-                sigma = np.sum(score.sum(axis=1) * weights[np.newaxis, :], axis=1)
-                cand = np.argsort(sigma)[::-1]
-                self.features = cand[:len(self.features)]
+                self._update_features(data)
             self._em(data)
             if verbose:
-                logger.info("iteration %d; log-likelihood (feature selection) %f; log_likelihood %f", ep, self.log_likelihood(data), super(MDPD_standard, self).log_likelihood(data))
+                self._verbose_printer(ep, data)
+
+    def _update_features(self, data):
+        """update features according to conditional information residue"""
+        log_post = self.log_posterior(data)
+        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=self.lock)
+        sigma = np.sum(score.sum(axis=1) * weights[np.newaxis, :], axis=1)
+        cand = np.argsort(sigma)[::-1]
+        self.features = cand[:len(self.features)]
+
+    def _verbose_printer(self, ep, data):
+        logger.info("iteration %d; log-likelihood (feature selection) %f; log_likelihood %f", ep,
+                    self.log_likelihood(data), super(MDPD_standard, self).log_likelihood(data))
 
     # def reset(self, data):
     #     self.feature_set = []

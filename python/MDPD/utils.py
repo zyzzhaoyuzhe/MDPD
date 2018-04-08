@@ -52,22 +52,22 @@ def log_joint_prob_slice(data, logW_slice, logC_slice):
     foo = foo.sum(axis=(1, 2))
     return foo + logW_slice
 
-def mstep(logpost, data):
+def mstep(log_post, data):
     """
 
-    :param logpost:  n-c
+    :param log_post:  n-c
     :param data:  n-d-r
     :return:
     """
     nsample, dim, nvocab = data.shape
 
     # a better implementation
-    newlogC = logsumexp(logpost[:, np.newaxis, np.newaxis, :], axis=0, b=data[..., np.newaxis]) \
-              - logsumexp(logpost, axis=0)[np.newaxis, np.newaxis, :]
+    newlogC = logsumexp(log_post[:, np.newaxis, np.newaxis, :], axis=0, b=data[..., np.newaxis]) \
+              - logsumexp(log_post, axis=0)[np.newaxis, np.newaxis, :]
     log_replace_neginf(newlogC)
     newlogC -= logsumexp(newlogC, axis=1, keepdims=True)
     # update W
-    newlogW = logsumexp(logpost, axis=0) - np.log(nsample)
+    newlogW = logsumexp(log_post, axis=0) - np.log(nsample)
     return newlogW, newlogC
 
 
