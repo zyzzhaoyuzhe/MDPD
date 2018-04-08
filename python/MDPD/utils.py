@@ -5,7 +5,7 @@ A module that helps MDPD module
 from __future__ import division
 import numpy as np
 import sys
-from scipy.misc import logsumexp
+# from scipy.special import logsumexp
 from copy import deepcopy
 import tensor_power as tp
 
@@ -52,6 +52,7 @@ def log_joint_prob_slice(data, logW_slice, logC_slice):
     foo = foo.sum(axis=(1, 2))
     return foo + logW_slice
 
+
 def mstep(log_post, data):
     """
 
@@ -60,8 +61,8 @@ def mstep(log_post, data):
     :return:
     """
     nsample, dim, nvocab = data.shape
-
-    # a better implementation
+    # NOTE: use logsumexp with arg b might be very slow
+    tmp = logsumexp(log_post[:, np.newaxis, np.newaxis, :], axis=0)
     newlogC = logsumexp(log_post[:, np.newaxis, np.newaxis, :], axis=0, b=data[..., np.newaxis]) \
               - logsumexp(log_post, axis=0)[np.newaxis, np.newaxis, :]
     log_replace_neginf(newlogC)
@@ -316,25 +317,53 @@ def log_replace_neginf(array):
     array[np.isneginf(array)] = NINF
 
 
-def mylog(input):
-    """
+def logsumexp(a, axis=None, b=None, keepdims=False):
+    a_max = np.amax(a, axis=axis, keepdims=True)
 
-    :param input:
-    :return:
-    """
-    if isinstance(input, int):
-        return np.log(input) if input != 0 else np.log(sys.float_info.min)
+    if a_max.ndim > 0:
+        a_max[~np.isfinite(a_max)] = 0
+    elif not np.isfinite(a_max):
+        a_max = 0
+
+    if b is not None:
+        b = np.asarray(b)
+        tmp = b * np.exp(a - a_max)
     else:
-        if isinstance(input, list):
-            input = np.asarray(input)
-        _shape = input.shape
-        input = input.flatten()
-        _len = np.size(input)
-        output = np.zeros(_len)
-        for i in range(_len):
-            foo = input[i]
-            output[i] = np.log(foo) if foo != 0 else np.log(sys.float_info.min)
-        return output.reshape(_shape)
+        tmp = np.exp(a - a_max)
+
+    # suppress warnings about log of zero
+    with np.errstate(divide='ignore'):
+        s = np.sum(tmp, axis=axis, keepdims=keepdims)
+        out = np.log(s)
+
+    if not keepdims:
+        a_max = np.squeeze(a_max, axis=axis)
+
+    out += a_max
+
+    return out
+
+
+# TODO: to be deprecated
+# def mylog(input):
+#     """
+#
+#     :param input:
+#     :return:
+#     """
+#     if isinstance(input, int):
+#         return np.log(input) if input != 0 else np.log(sys.float_info.min)
+#     else:
+#         if isinstance(input, list):
+#             input = np.asarray(input)
+#         _shape = input.shape
+#         input = input.flatten()
+#         _len = np.size(input)
+#         output = np.zeros(_len)
+#         for i in range(_len):
+#             foo = input[i]
+#             output[i] = np.log(foo) if foo != 0 else np.log(sys.float_info.min)
+#         return output.reshape(_shape)
 
 # def comp_duplicate(logW, logC, lock, comp):
 #     newlogW = np.copy(logW)
