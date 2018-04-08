@@ -6,7 +6,7 @@ import time, timeit
 import signal
 import scipy.io as scio
 from scipy.sparse import coo_matrix
-from MDPD import *
+from MDPD import MDPD, utils
 from MDPD.readers import *
 import matplotlib.pyplot as plt
 import matplotlib
@@ -137,10 +137,11 @@ def indi_rank(test, label):
 # folder = '/media/vzhao/Data/crowdsourcing_datasets/'
 folder = '/Users/vincent/Documents/Research/MDPD/crowdsourcing_datasets'
 
-# ## Bird data
-# reader = Crowd_Sourcing_Readers(os.path.join(folder, 'bird', 'bluebird_crowd.txt'), os.path.join(folder, 'bird', 'bluebird_truth.txt'))
-# train, label = reader.data, reader.labels
-# lock = np.zeros(train.shape[1:], dtype=np.bool)
+## Bird data
+reader = Crowd_Sourcing_Readers(os.path.join(folder, 'bird', 'bluebird_crowd.txt'), os.path.join(folder, 'bird', 'bluebird_truth.txt'))
+train, label = reader.data, reader.labels
+lock = np.zeros(train.shape[1:], dtype=np.bool)
+print train.shape
 
 # ## Dog Data
 # reader = Crowd_Sourcing_Readers(os.path.join(folder, 'dog', 'dog_crowd.txt'), os.path.join(folder, 'dog', 'dog_truth.txt'))
@@ -149,12 +150,12 @@ folder = '/Users/vincent/Documents/Research/MDPD/crowdsourcing_datasets'
 # lock[:, -1] = 1
 
 
-## Web Data
-reader = Crowd_Sourcing_Readers(os.path.join(folder, 'web', 'web_crowd.txt'), os.path.join(folder, 'web', 'web_truth.txt'))
-train, label = reader.data, reader.labels
-lock = np.zeros(train.shape[1:],dtype=np.bool)
-lock[:, -1] = 1
-print train.shape
+# ## Web Data
+# reader = Crowd_Sourcing_Readers(os.path.join(folder, 'web', 'web_crowd.txt'), os.path.join(folder, 'web', 'web_truth.txt'))
+# train, label = reader.data, reader.labels
+# lock = np.zeros(train.shape[1:],dtype=np.bool)
+# lock[:, -1] = 1
+# print train.shape
 
 ## TREC
 # train = Crowd_Sourcing_Readers.read_data(os.path.join(folder, 'trec', 'trec_crowd.txt'))
@@ -163,12 +164,11 @@ print train.shape
 # lock[:, -1] = 1
 
 # analysys
-score_origin = utils.Feature_Selection.MI_score(train, rm_diag=True, lock=lock)
-
-features, score = utils.Feature_Selection.MI_feature_ranking(train, lock=lock)
+# score_origin = utils.Feature_Selection.MI_score(train, rm_diag=True, lock=lock)
+# features, score = utils.Feature_Selection.MI_feature_ranking(train, lock=lock)
 Ntop = 15
-model = MDPD.MDPD()
-model.fit(train, ncomp=5, init='majority', verbose=False, features=features[:Ntop], epoch=50, lock=lock)
+model = MDPD.MDPD_standard()
+model.fit(train, ncomp=5, init='majority', verbose=False, features=Ntop, epoch=50, lock=lock)
 model.accuracy(train, label)
 model.MI_residue(train)
 

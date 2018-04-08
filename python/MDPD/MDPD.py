@@ -206,9 +206,10 @@ class MDPD_basic(object):
             #     self.trace = [item for i, item in enumerate(self.trace) if i not in cord_list]
 
 
-class MDPD(MDPD_basic, object):
+class MDPD_standard(MDPD_basic, object):
+    """MDPD model with batch EM + Feature Selection"""
     def __init__(self):
-        super(MDPD, self).__init__()
+        super(MDPD_standard, self).__init__()
         self.features = []
         self.lock = None
 
@@ -242,7 +243,8 @@ class MDPD(MDPD_basic, object):
     def fit(self, data, ncomp,
             features=None, init="majority",
             init_label=None, init_para=None,
-            epoch=30, verbose=True, lock=None):
+            epoch=30, update_features_per_epoch=None,
+            verbose=True, lock=None):
         """
         Fit the model to training data.
         :param data: numpy array, shape = (nsample, dim, nvocab)
@@ -258,7 +260,17 @@ class MDPD(MDPD_basic, object):
         ## update instance variables
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
-        self.features = features if features is not None else range(dim)
+        # initialized features
+        if features is None:
+            self.features = range(dim)
+        elif isinstance(features, (list, np.ndarray)):
+            self.features = features
+        elif isinstance(features, int):
+            cand, _ = utils.Feature_Selection.MI_feature_ranking(data, lock=lock)
+            self.features = cand[:features]
+        else:
+            raise ValueError('invalid input type for <features>')
+        # self.features = features if features is not None else range(dim)
         self.lock = np.array(lock, dtype=np.bool) if lock is not None else np.zeros((dim, nvocab), dtype=np.bool)
         logger.info(
             "Training an MDPD with dimension %i, %i features, sample size %i, vocab size %i and the target number of components %i",
@@ -280,7 +292,7 @@ class MDPD(MDPD_basic, object):
             raise ValueError('No valid initialization.')
         self._apply_lock(data)
         # statistics
-        self._em_wrapper(data, epoch, verbose=verbose)
+        self._em_wrapper(data, epoch, update_features_per_epoch, verbose=verbose)
 
     def _em(self, data):
         """
@@ -294,11 +306,17 @@ class MDPD(MDPD_basic, object):
         self.logW, self.logC = utils.mstep(log_post, data)
         self._apply_lock(data)
 
-    def _em_wrapper(self, data, niter, verbose=False):
-        for count in xrange(niter):
+    def _em_wrapper(self, data, epoch, update_features_per_epoch, verbose=False):
+        for ep in xrange(epoch):
+            if ep > 0 and update_features_per_epoch is not None and ep % update_features_per_epoch == 0:
+                log_post = self.log_posterior(data)
+                score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=self.lock)
+                sigma = np.sum(score.sum(axis=1) * weights[np.newaxis, :], axis=1)
+                cand = np.argsort(sigma)[::-1]
+                self.features = cand[:len(self.features)]
             self._em(data)
             if verbose:
-                logger.info("iteration %d; log-likelihood (feature selection) %f; log_likelihood %f", count, self.log_likelihood(data), super(MDPD, self).log_likelihood(data))
+                logger.info("iteration %d; log-likelihood (feature selection) %f; log_likelihood %f", ep, self.log_likelihood(data), super(MDPD_standard, self).log_likelihood(data))
 
     # def reset(self, data):
     #     self.feature_set = []
