@@ -137,7 +137,7 @@ class MDPD_standard(MDPD_basic):
         self.features = []
         self.lock = None
         self._cache = defaultdict(list)
-        self._folder = '../' if folder is None else folder
+        self._folder = os.path.abspath('../' if folder is None else folder)
         self._cache['name'] = name
 
     def MI_residue(self, data):
@@ -192,18 +192,7 @@ class MDPD_standard(MDPD_basic):
             init_label=None, init_para=None,
             epoch=30, update_features_per_epoch=None,
             verbose=True, lock=None):
-        """
-        Fit the model to training data.
-        :param data: numpy array, shape = (nsample, dim, nvocab)
-        :param ncomp: int, number of components
-        :param features: list of ints, selected features
-        :param init:
-        :param init_label:
-        :param init_para:
-        :param epoch:
-        :param verbose:
-        :return:
-        """
+        " Fit the model to training data, using batch EM."
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
         # initiate features
@@ -236,6 +225,10 @@ class MDPD_standard(MDPD_basic):
 
     def _em_wrapper(self, data, epoch, update_features_per_epoch, verbose=False):
         if verbose:
+            tmp_folder = tempfile.mkdtemp(dir=self._folder)
+            checkpoint_folder = os.path.join(tmp_folder, 'checkpoints')
+            os.mkdir(checkpoint_folder)
+
             self._cache['epoch'] = epoch
             self._cache['update_features_per_epoch'] = update_features_per_epoch
             self._cache['features'].append((0, self.features))
@@ -251,9 +244,9 @@ class MDPD_standard(MDPD_basic):
 
             if verbose:
                 self._verbose_per_epoch(ep, data)
+                self.save(os.path.join(checkpoint_folder, 'epoch_{}'.format(ep)))
 
         if verbose:
-            tmp_folder = tempfile.mkdtemp(dir=self._folder)
             with open(os.path.join(tmp_folder, 'training_stats.p'), 'w') as h:
                 cPickle.dump(self._cache, h)
             logger.info('NOTE: all records and stats are exported to {}'.format(tmp_folder))
