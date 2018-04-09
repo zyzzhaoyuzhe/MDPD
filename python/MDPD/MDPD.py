@@ -7,6 +7,7 @@ Basic MDPD class is defined in this module which is composed of basic functions.
 from __future__ import division
 
 import cPickle
+import os
 import copy
 import itertools
 import tempfile
@@ -210,11 +211,13 @@ class MDPD_basic(object):
 
 class MDPD_standard(MDPD_basic):
     """MDPD model with batch EM + Feature Selection"""
-    def __init__(self):
+    def __init__(self, folder=None, name=None):
         super(MDPD_standard, self).__init__()
         self.features = []
         self.lock = None
-        self._folder, self._cache = None, None # used when verbose is used.
+        self._cache = defaultdict(list)
+        self._folder = '../' if folder is None else folder
+        self._cache['name'] = name
 
     def MI_residue(self, data):
         log_post = self.log_posterior(data)
@@ -280,9 +283,6 @@ class MDPD_standard(MDPD_basic):
         :param verbose:
         :return:
         """
-        if verbose:
-            self._cache = defaultdict(list)
-            self._folder = tempfile.mkdtemp(dir='../')
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
         # initiate features
@@ -314,12 +314,29 @@ class MDPD_standard(MDPD_basic):
         self._apply_lock(data)
 
     def _em_wrapper(self, data, epoch, update_features_per_epoch, verbose=False):
+        if verbose:
+            self._cache['epoch'] = epoch
+            self._cache['update_features_per_epoch'] = update_features_per_epoch
+            self._cache['features'].append((0, self.features))
+
         for ep in xrange(epoch):
             if ep > 0 and update_features_per_epoch is not None and ep % update_features_per_epoch == 0:
                 self._update_features(data)
+
+                if verbose:
+                    self._cache['features'].append((ep, self.features))
+
             self._em(data)
+
             if verbose:
-                self._verbose_printer(ep, data)
+                self._verbose_per_epoch(ep, data)
+
+        if verbose:
+            tmp_folder = tempfile.mkdtemp(dir=self._folder)
+            with open(os.path.join(tmp_folder, 'training_stats.p'), 'w') as h:
+                cPickle.dump(self._cache, h)
+            logger.info('NOTE: all records and stats are exported to {}'.format(tmp_folder))
+
 
     def _update_features(self, data):
         """update features according to conditional information residue"""
@@ -329,25 +346,28 @@ class MDPD_standard(MDPD_basic):
         cand = np.argsort(sigma)[::-1]
         self.features = cand[:len(self.features)]
 
-    def _verbose_printer(self, ep, data):
-        d
+    def _verbose_per_epoch(self, ep, data):
+        dim = data.shape[1]
 
         ll = self.log_likelihood(data)
+        self._cache['log_likelihood'].append(ll)
 
         ll_overall = super(MDPD_standard, self).log_likelihood(data)
-
-        f = self.features
+        self._cache['log_likelihood_overall'].append(ll_overall)
 
         log_post = self.log_posterior(data)
         score, weighted = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True)
         sigma_condition = score.sum(axis=1)
+        self._cache['sigma_condition'].append(sigma_condition)
+        res = np.sum(sigma_condition * weighted[np.newaxis, :]) / (dim * (dim - 1))
 
-
-
-
-
-        logger.info("iteration %d; log-likelihood (feature selection) %f; log_likelihood %f", ep,
-                    self.log_likelihood(data), super(MDPD_standard, self).log_likelihood(data))
+        logger.info("iteration %d; log-likelihood (feature selection) %f; "
+                    "log_likelihood %f;"
+                    "information residue %f",
+                    ep,
+                    self.log_likelihood(data),
+                    super(MDPD_standard, self).log_likelihood(data),
+                    res)
 
 
     # def reset(self, data):
@@ -544,7 +564,7 @@ class MDPD_online(MDPD_standard):
                     self._update_features(data)
                 self._em_online(data, data_idx_rand[nb * batch : (nb + 1) * batch])
             if verbose:
-                self._verbose_printer(ep, data)
+                self._verbose_per_epoch(ep, data)
 
 
 class MDPD2(MDPD_basic):
