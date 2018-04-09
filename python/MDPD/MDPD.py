@@ -9,6 +9,8 @@ from __future__ import division
 import cPickle
 import copy
 import itertools
+import tempfile
+from collections import defaultdict
 import logging
 import numpy as np
 from copy import deepcopy
@@ -212,6 +214,7 @@ class MDPD_standard(MDPD_basic):
         super(MDPD_standard, self).__init__()
         self.features = []
         self.lock = None
+        self._folder, self._cache = None, None # used when verbose is used.
 
     def MI_residue(self, data):
         log_post = self.log_posterior(data)
@@ -277,6 +280,9 @@ class MDPD_standard(MDPD_basic):
         :param verbose:
         :return:
         """
+        if verbose:
+            self._cache = defaultdict(list)
+            self._folder = tempfile.mkdtemp(dir='../')
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
         # initiate features
@@ -324,8 +330,25 @@ class MDPD_standard(MDPD_basic):
         self.features = cand[:len(self.features)]
 
     def _verbose_printer(self, ep, data):
+        d
+
+        ll = self.log_likelihood(data)
+
+        ll_overall = super(MDPD_standard, self).log_likelihood(data)
+
+        f = self.features
+
+        log_post = self.log_posterior(data)
+        score, weighted = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True)
+        sigma_condition = score.sum(axis=1)
+
+
+
+
+
         logger.info("iteration %d; log-likelihood (feature selection) %f; log_likelihood %f", ep,
                     self.log_likelihood(data), super(MDPD_standard, self).log_likelihood(data))
+
 
     # def reset(self, data):
     #     self.feature_set = []
