@@ -95,39 +95,118 @@ class MDPD_basic(object):
         self._logW = self._logW[order]
         self._logC = self._logC[:, :, order]
 
-    def _tbs(self):
-        """instance variables to be saved and loaded"""
-        names = ['dim',
-                 'ncomp',
-                 'nvocab',
-                 'logW',
-                 'logC'
-                 ]
-
-        tbs = {}
-        for name in names:
-            tbs[name] = getattr(self, name)
-
+    def _get_tbs(self):
+        """helper for save"""
+        tbs = {}  # to be saved
+        tbs['m'] = self.dim
+        tbs['n'] = self.nsample
+        tbs['c'] = self.ncomp
+        tbs['r'] = self.nvocab
+        tbs['z'] = self.data
+        tbs['label'] = self.label
+        tbs['W'] = self._logW
+        tbs['C'] = self._logC
+        tbs['Wgen'] = self.Wgen
+        tbs['Cgen'] = self.Cgen
+        tbs['trace'] = self.trace
         return tbs
 
     def save(self, filename):
-        "This method is to save the model by using pickle (cpickle)."
+        """
+        This method is to save the model by using pickle (cpickle).
 
+        Attributes to be saved will be collected into a single dictionary and then save to the file named 'filename'.
+        Attributes to be saved are: m, n, c, r, z, label, W, C, Wgen, Cgen
+        :param filename:
+        :return:
+        """
         if filename[-2:] != '.p':
             filename += '.p'
 
-        tbs = self._tbs()
+        tbs = self._get_tbs()
 
         with open(filename, 'wb') as f:
             cPickle.dump(tbs, f)
 
-    def load(self, filename):
-        "This methods is to load the model from 'filename'"
+    def _load(self, tbl):
+        """Helper for load"""
+        self.dim = tbl['m']
+        self.nsample = tbl['n']
+        self.ncomp = tbl['c']
+        self.nvocab = tbl['r']
+        self.data = tbl['z']
+        self.label = tbl['label']
+        self._logW = tbl['W']
+        self._logC = tbl['C']
+        self.Wgen = tbl['Wgen']
+        self.Cgen = tbl['Cgen']
+        self.trace = tbl['trace']
 
+    def load(self, filename):
+        """
+        This methods is to load the model from 'filename'
+        :param filename:
+        :return:
+        """
+        if filename[-2:] != '.p':
+            filename += '.p'
         with open(filename, 'rb') as f:
             tbl = cPickle.load(f)
-            for key, val in tbl.iteritems():
-                setattr(self, key, val)
+            self._load(tbl)
+
+            # def merge(self, cord_list):
+            #     _num = len(cord_list)
+            #     newm = self.dim - _num + 1
+            #     newr = 1
+            #     newtrace = []
+            #     foo = []    # for z
+            #     bar = [1]
+            #     for i in cord_list:
+            #         newr *= self.nvocab[i]
+            #         newtrace += self.trace[i]
+            #         # binary coding to numerics
+            #         foo.append(np.dot(np.asarray(range(self.nvocab[i])), self.data[i]))
+            #         bar.append(bar[-1] * self.nvocab[i])
+            #     bar.pop()
+            #     bar = np.asarray(bar).reshape((_num, 1))
+            #     foo = np.asarray(foo)   # numeric responses of each in cord_list
+            #     numeric_res = np.sum(foo * bar, axis=0) # numeric responses to each sample for the merged coordinate
+            #     # convert to binary encoding
+            #     foo = numeric_res * self.nsample + np.asarray(range(self.nsample))
+            #     newz = np.zeros(newr * self.nsample)
+            #     newz[foo] = 1
+            #     newz = newz.reshape((newr, self.nsample))
+            #     # newC and newCgen
+            #     newC = np.zeros((newr, self.ncomp))
+            #     if self.Cgen:
+            #         newCgen = np.zeros((newr, self.ncomp))
+            #     for k in range(self.ncomp):
+            #         cord_list_copy = copy.copy(cord_list)
+            #         id = cord_list_copy.pop()
+            #         foo1 = self.logC[id][:, k].flatten()
+            #         if self.Cgen:
+            #             foo2 = self.Cgen[id][:, k].flatten()
+            #         for count in range(1, _num):
+            #             id = cord_list_copy.pop()
+            #             foo1 = np.outer(foo1, self.logC[id][:, k]).flatten()
+            #             if self.Cgen:
+            #                 foo2 = np.outer(foo2, self.logC[id][:, k]).flatten()
+            #         newC[:, k] = foo1
+            #         if self.Cgen:
+            #             newCgen[:, k] = foo2
+            #     # clean up model
+            #     self.dim = newm
+            #     self.nvocab.append(newr)
+            #     self.nvocab[:] = [item for i, item in enumerate(self.nvocab) if i not in cord_list]
+            #     self.data.append(newz)
+            #     self.data[:] = [item for i, item in enumerate(self.data) if i not in cord_list]
+            #     self.logC.append(newC)
+            #     self.logC = [item for i, item in enumerate(self.logC) if i not in cord_list]
+            #     if self.Cgen:
+            #         self.Cgen.append(newCgen)
+            #         self.Cgen = [item for i, item in enumerate(self.Cgen) if i not in cord_list]
+            #     self.trace.append(newtrace)
+            #     self.trace = [item for i, item in enumerate(self.trace) if i not in cord_list]
 
 
 class MDPD_standard(MDPD_basic):
@@ -290,6 +369,19 @@ class MDPD_standard(MDPD_basic):
                     super(MDPD_standard, self).log_likelihood(data),
                     res)
 
+
+    # def reset(self, data):
+    #     self.feature_set = []
+    #     self.logC = np.log(data.mean(axis=0).squeeze()[:, :, np.newaxis])
+    #     self.logC[np.isinf(self.logC)] = -100
+    #     self.logC -= logsumexp(self.logC, axis=1)[:, np.newaxis, :]
+    #     self.lock = np.ones(self.logC.shape)
+    #     # self.C = [data[i].mean(axis=1)[:, np.newaxis] for i in range(self.dim)]
+    #     self.logW = np.asarray([0])
+    #     self.ncomp = 1
+    #     pass
+
+    #
     def change_features(self, data, features=None):
         """Change the feature set"""
         features = features or range(self.dim)
@@ -331,6 +423,13 @@ class MDPD_standard(MDPD_basic):
         normalizer = logsumexp(log_joint, axis=1, keepdims=True)
         return log_joint - normalizer
 
+    # def predict(self, data):
+    #     data_selected = data[:, self.features, :]
+    #     return MDPD_basic.predict(self, data_selected)
+
+    # def accuracy(self, data, label):
+    #     data_selected = data[:, self.features, :]
+    #     return MDPD_basic.accuracy(self, data_selected, label)
 
     def align(self, data, label, features=None):
         """
@@ -362,18 +461,45 @@ class MDPD_standard(MDPD_basic):
         logger.info('Swap the components by {}.'.format(best_order))
         self.reorder(best_order)
 
+    # def add_infoset(self, input):
+    #     return add_infoset(self._feature_set, input)
 
-    def _tbs(self):
-        names = ['features',
-                 'lock',
-                 '_cache',
-                 '_folder',
-                 ]
+    def save(self, filename):
+        """override save"""
+        if filename[-2:] != '.p':
+            filename += '.p'
+        tbs = self._get_tbs()
+        tbs['features'] = self.features
+        with open(filename, 'wb') as f:
+            cPickle.dump(tbs, f)
 
-        tbs = super(MDPD_standard, self)._tbs()
-        for name in names:
-            tbs[name] = getattr(self, name)
-        return tbs
+    def load(self, filename):
+        """override load"""
+        if filename[-2:] != '.p':
+            filename += '.p'
+        with open(filename, 'rb') as f:
+            tbl = cPickle.load(f)
+            self._load(tbl)
+            self.features = tbl['features']
+
+    # def merge(self, cord_list):
+    #     """
+    #
+    #     :param cord_list:
+    #     :return:
+    #     """
+    #     _num = len(cord_list)
+    #     newm = self.dim - _num + 1
+    #     idx = [item for i, item in enumerate(range(self.dim)) if i not in cord_list]
+    #     newactiveset = []
+    #     for i in self._feature_set:
+    #         if i not in cord_list:
+    #             newactiveset.append(idx.index(i))
+    #         else:
+    #             if newm - 1 not in newactiveset:
+    #                 newactiveset.append(newm - 1)
+    #     self._feature_set = newactiveset
+    #     MDPD_basic.merge(self, cord_list)
 
 
 class MDPD_online(MDPD_standard):
@@ -439,14 +565,6 @@ class MDPD_online(MDPD_standard):
                 self._em_online(data, data_idx_rand[nb * batch : (nb + 1) * batch])
             if verbose:
                 self._verbose_per_epoch(ep, data)
-
-    def _tbs(self):
-        names = ['_log_post']
-
-        tbs = super(MDPD_online, self)._tbs()
-        for name in names:
-            tbs[name] = getattr(self, name)
-        return tbs
 
 
 class MDPD2(MDPD_basic):
