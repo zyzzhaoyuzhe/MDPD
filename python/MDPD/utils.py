@@ -12,6 +12,7 @@ import tensor_power as tp
 import time
 
 NINF = np.finfo('f').min
+NINF_ = -float('inf')
 PESP = np.finfo('f').eps
 
 
@@ -26,7 +27,7 @@ def log_joint_prob_fast(data, logW, logC):
     :return: n - c
     """
     if data.any() and logC.any():
-        foo = data[..., np.newaxis] * logC[np.newaxis, ...]
+        foo = data[..., None] * logC[None, ...]
         # get nan when 0 * -inf
         foo[np.isnan(foo)] = 0
         foo = foo.sum(axis=(1, 2))
@@ -34,7 +35,7 @@ def log_joint_prob_fast(data, logW, logC):
     else:
         nsample, ncomp = data.shape[0], logW.size
         foo = np.zeros((ncomp, nsample))
-    return foo + logW[np.newaxis, :]
+    return foo + logW[None, :]
 
 
 def log_joint_prob_slice(data, logW_slice, logC_slice):
@@ -48,7 +49,7 @@ def log_joint_prob_slice(data, logW_slice, logC_slice):
     if data.shape[1] == 0:
         return np.zeros(data.shape[0]) + logW_slice
     # make sure no -inf in logC
-    foo = data * logC_slice[np.newaxis, ...]
+    foo = data * logC_slice[None, ...]
     foo = foo.sum(axis=(1, 2))
     return foo + logW_slice
 
@@ -62,9 +63,9 @@ def mstep(log_post, data):
     """
     nsample, dim, nvocab = data.shape
     # NOTE: use logsumexp with arg b might be very slow
-    tmp = logsumexp(log_post[:, np.newaxis, np.newaxis, :], axis=0)
-    newlogC = logsumexp(log_post[:, np.newaxis, np.newaxis, :], axis=0, b=data[..., np.newaxis]) \
-              - logsumexp(log_post, axis=0)[np.newaxis, np.newaxis, :]
+    tmp = logsumexp(log_post[:, None, None, :], axis=0)
+    newlogC = logsumexp(log_post[:, None, None, :], axis=0, b=data[..., None]) \
+              - logsumexp(log_post, axis=0)[None, None, :]
     log_replace_neginf(newlogC)
     newlogC -= logsumexp(newlogC, axis=1, keepdims=True)
     # update W
@@ -197,14 +198,14 @@ class Feature_Selection():
         ncomp = log_post.shape[1]
         newlogW, newlogC = mstep(log_post, data)
         post = np.exp(log_post)
-        data_transform = data[:, :, :, np.newaxis] * np.sqrt(post)[:, np.newaxis, np.newaxis, :]
+        data_transform = data[:, :, :, None] * np.sqrt(post)[:, None, None, :]
         cache = []
         for k in range(ncomp):
             second = 1. / nsample * np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
             second = second / np.exp(newlogW[k])
             #
             if np.any(lock):
-                mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
+                mask = (lock[..., None, None] + lock[None, None, ...]) == 0
                 # scaled log_second
                 second += PESP
                 second_masked = second * mask
@@ -213,16 +214,7 @@ class Feature_Selection():
                 log_replace_neginf(log_second_scaled)
                 # scaled log_first P(x_i|y, x_i x_k \neq missing label)
                 log_first_scaled = logsumexp(log_second_scaled, axis=3)
-                log_first_scaled = log_first_scaled[..., np.newaxis] + np.moveaxis(log_first_scaled, (0,1,2), (1,2,0))[:, np.newaxis,...]
-
-                # first_masked = np.sum(second_masked, axis=3)
-                # log_first_scaled = np.log(first_masked[..., np.newaxis] * np.moveaxis(first_masked, (0,1,2,), (1,2,0))[:, np.newaxis,...])
-                #
-                #
-                #
-                #
-                # const = logsumexp(log_first, axis=(1, 3), keepdims=True, b=mask)
-                # log_first_scaled = log_first - const
+                log_first_scaled = log_first_scaled[..., None] + np.moveaxis(log_first_scaled, (0,1,2), (1,2,0))[:, None,...]
                 pmi = second_masked * (log_second_scaled - log_first_scaled)
             else:
                 log_first = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
@@ -230,8 +222,50 @@ class Feature_Selection():
                 pmi = second * (log_second - log_first)
                 pmi[second == 0] = 0
             # pmi[log_first == 0] = 0
-            cache.append(pmi[..., np.newaxis])
+            cache.append(pmi[..., None])
         return np.concatenate(cache, axis=4)
+
+
+    # @classmethod
+    # def pmi_conditional(cls, data, log_post, lock=None):
+    #     """
+    #     calculate P(x_i, x_j|y=k) ln(p(x_i, x_j|y=k) / p(x_i|y=k)p(x_j|y=k))
+    #     :param data:
+    #     :param log_post:
+    #     :return: d - r - d - r - c
+    #     """
+    #     nsample, dim, nvocab = data.shape
+    #     ncomp = log_post.shape[1]
+    #     newlogW, newlogC = mstep(log_post, data)
+    #     cache = []
+    #     b = data[..., None, None] * data[:, None, None, ...]
+    #     mask = (lock[..., None, None] + lock[None, None, ...]) == 0 if np.any(lock) else None
+    #     for k in range(ncomp):
+    #         if np.any(lock):
+    #             log_second = logsumexp(log_post[:, None, None, None, None, k],
+    #                                    axis=0, b=b) - np.log(nsample)
+    #             normalizer = logsumexp(log_second, axis=(1, 3), b=mask, keepdims=True)
+    #             # a mask show that x_i, x_j has at least one missing value at a time
+    #             mask_miss = np.broadcast_to(np.isinf(normalizer), mask.shape)
+    #             log_second_masked = log_second - normalizer
+    #             joint_mask = np.logical_and(mask, mask_miss)
+    #             log_second_masked[joint_mask] = np.broadcast_to(-np.log(np.sum(mask, axis=(1, 3), keepdims=True)) , mask.shape)[joint_mask]
+    #             log_second_masked[np.logical_not(mask)] = NINF
+    #             log_replace_neginf(log_second_masked)
+    #             log_first_masked = logsumexp(log_second_masked, axis=3, b=mask)
+    #             log_first_masked = log_first_masked[..., None] + np.moveaxis(log_first_masked, (0, 1, 2), (1, 2, 0))[:,
+    #                                                              None, ...]
+    #             pmi = np.exp(log_second_masked) * (log_second_masked - log_first_masked)
+    #             pmi[np.logical_not(mask)] = 0
+    #         else:
+    #             log_first = newlogC[..., None, None, k] + newlogC[None, None, ..., k]
+    #             log_second = logsumexp(log_post[:, None, None, None, None, k],
+    #                                    axis=0, b=b) - np.log(nsample) - newlogW[k]
+    #             pmi = np.exp(log_second) * (log_second - log_first)
+    #             pmi[np.isinf(log_second)] = 0
+    #         cache.append(pmi[..., None])
+    #     return np.concatenate(cache, axis=4)
+
 
     @classmethod
     def MI_score(cls, data, rm_diag=False, lock=None):
@@ -244,7 +278,7 @@ class Feature_Selection():
         #
         # pmi = cls.pmi(data)
         # if np.any(lock):
-        #     mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
+        #     mask = (lock[..., None, None] + lock[None, None, ...]) == 0
         #     score = np.sum(pmi * mask, axis=(1, 3))
         # else:
         #     score = pmi.sum(axis=(1, 3))
@@ -267,8 +301,8 @@ class Feature_Selection():
         newlogW, _ = mstep(log_post, data)
         score = np.sum(pmi, axis=(1, 3))
         # if np.any(lock):
-        #     mask = (lock[..., np.newaxis, np.newaxis] + lock[np.newaxis, np.newaxis, ...]) == 0
-        #     score = np.sum(pmi * mask[..., np.newaxis], axis=(1, 3))
+        #     mask = (lock[..., None, None] + lock[None, None, ...]) == 0
+        #     score = np.sum(pmi * mask[..., None], axis=(1, 3))
         # else:
         #     score = np.sum(pmi, axis=(1, 3))
         if rm_diag:
@@ -282,9 +316,9 @@ class Feature_Selection():
     #     nsample, dim, nvocab = data.shape
     #     ncomp = logpost.shape[1]
     #     newlogW, newlogC = mstep(logpost, data)
-    #     data_out = data[..., np.newaxis, np.newaxis, np.newaxis] * data[:, np.newaxis, np.newaxis, :, :, np.newaxis]
-    #     logpost_reshape = logpost[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis, :]
-    #     log_first = newlogC[:, :, np.newaxis, np.newaxis, :] + newlogC[np.newaxis, np.newaxis, ...]
+    #     data_out = data[..., None, None, None] * data[:, None, None, :, :, None]
+    #     logpost_reshape = logpost[:, None, None, None, None, :]
+    #     log_first = newlogC[:, :, None, None, :] + newlogC[None, None, ...]
     #     log_second = logsumexp(logpost_reshape, axis=0, b=data_out) - np.log(nsample) - np.reshape(newlogW,
     #                                                                                                (1, 1, 1, 1, -1))
     #     pmi = np.exp(log_second) * (log_second - log_first)
@@ -300,9 +334,9 @@ class Feature_Selection():
     #     nsample, dim, nvocab = data.shape
     #     ncomp = log_post.shape[1]
     #     newlogW, newlogC = mstep(log_post, data)
-    #     data_out = data[..., np.newaxis, np.newaxis, np.newaxis] * data[:, np.newaxis, np.newaxis, :, :, np.newaxis]
-    #     logpost_reshape = log_post[:, np.newaxis, np.newaxis, np.newaxis, np.newaxis, :]
-    #     log_first = newlogC[:, :, np.newaxis, np.newaxis, :] + newlogC[np.newaxis, np.newaxis, ...]
+    #     data_out = data[..., None, None, None] * data[:, None, None, :, :, None]
+    #     logpost_reshape = log_post[:, None, None, None, None, :]
+    #     log_first = newlogC[:, :, None, None, :] + newlogC[None, None, ...]
     #     log_second = logsumexp(logpost_reshape, axis=0, b=data_out) - np.log(nsample) - np.reshape(newlogW,
     #                                                                                                (1, 1, 1, 1, -1))
     #     pmi = np.exp(log_second) * (log_second - log_first)
@@ -371,9 +405,9 @@ def logsumexp(a, axis=None, b=None, keepdims=False):
 #     newlogW[comp] -= np.log(2)
 #
 #     newlogC = np.copy(logC)
-#     newlogC = np.append(newlogC, newlogC[:, :, comp][:, :, np.newaxis], axis=2)
+#     newlogC = np.append(newlogC, newlogC[:, :, comp][:, :, None], axis=2)
 #
-#     lock = np.append(lock, lock[:, :, comp][:, :, np.newaxis], axis=2)
+#     lock = np.append(lock, lock[:, :, comp][:, :, None], axis=2)
 #     return newlogW, newlogC, lock, newlogC.shape[2]
 
 
@@ -467,7 +501,7 @@ def logsumexp(a, axis=None, b=None, keepdims=False):
 #     for i in xrange(len(idx1)):
 #         for j in xrange(len(idx2)):
 #             foo = np.tensordot(logC, data[sample_part[i][j], :, :], axes=[(0, 1), (1, 2)])
-#             foo += logW[:, np.newaxis]
+#             foo += logW[:, None]
 #             # foo.shape = (ncomp, nsample)
 #             output[i, j] = 1 / nsample * np.sum(np.exp(foo[comp, :] - logC[cord1, idx1[i], comp]
 #                                                        - logC[cord2, idx2[j], comp] - logsumexp(foo, axis=0)))
