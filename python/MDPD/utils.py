@@ -66,7 +66,7 @@ def mstep(log_post, data, sample_log_weights=None):
     if sample_log_weights is None:
         sample_log_weights = - np.log(nsample) * np.ones(nsample, dtype=np.float)
 
-    log_p_tilde = log_post + sample_log_weights[:, None]    # log(p(y|x_i)p_0(x_i))
+    log_p_tilde = log_post + sample_log_weights[:, None]    # log(p(y|x_i)p_0(x_i)) unnormalized
 
     newlogW = logsumexp(log_p_tilde, axis=0)
     newlogW = newlogW - logsumexp(newlogW)
@@ -161,36 +161,47 @@ class Crowdsourcing_initializer(MDPD_initializer):
 ################ Feature Selection #####################
 # MDPD feature selection
 class Feature_Selection():
-    # TODO to be deprecated
-    # @classmethod
-    # def MI_feature_selection(cls, data, topN):
-    #     ranking, sigma = cls.MI_feature_ranking(data)
-    #     return ranking[:topN], sigma[:topN]
-
     @classmethod
-    def MI_feature_ranking(cls, data, lock=None):
+    def MI_score(cls, data, sample_log_weights=None, rm_diag=True, lock=None):
         """
-        Calculate sum_{j} sum_{x_i, x_j} P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j)) and sort
-        :param data:
-        :param lock:
+        Calculate sum_{x_i, x_j} P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j))
         :return:
         """
-        score = cls.MI_score(data, rm_diag=True, lock=lock)
-        sigma = score.sum(axis=1)
-        ranking = np.argsort(sigma, axis=None)[::-1]
-        return ranking, sigma[ranking]
+        pmi = cls.pmi(data, lock=lock, sample_log_weights=sample_log_weights)
+        score = pmi.sum(axis=(1, 3))
+        if rm_diag:
+            np.fill_diagonal(score, 0)
+        return score
 
     @classmethod
-    def pmi(cls, data, lock=None):
+    def MI_score_conditional(cls, data, log_post, sample_log_weights=None, rm_diag=True, lock=None):
+        """
+        Calculate \sum_{x_i, x_j}P(x_i, x_j|y=k) ln(p(x_i, x_j|y=k) / p(x_i|y=k)p(x_j|y=k)).
+        :param data:
+        :param log_post: n - c
+        :param rm_diag:
+        :param lock: d - r
+        :return: d - d - c, c
+        """
+        ncomp = log_post.shape[1]
+        pmi = cls.pmi_conditional(data, log_post, lock=lock, sample_log_weights=sample_log_weights)
+        newlogW, _ = mstep(log_post, data, sample_log_weights=sample_log_weights)
+        score = np.sum(pmi, axis=(1, 3))
+        if rm_diag:
+            for k in xrange(ncomp):
+                np.fill_diagonal(score[..., k], 0)
+        return score, np.exp(newlogW)
+
+    @classmethod
+    def pmi(cls, data, lock=None, sample_log_weights=None):
         """
         calculate P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j))
         :return: d - r - d - r
         """
-        nsample, dim, nvocab = data.shape
+        nsample = data.shape[0]
         log_post = np.zeros((nsample, 1))
-        pmi = cls.pmi_conditional(data, log_post, lock=lock)
+        pmi = cls.pmi_conditional(data, log_post, lock=lock, sample_log_weights=sample_log_weights)
         return pmi[..., 0]
-
 
     @classmethod
     def pmi_conditional(cls, data, log_post, lock=None, sample_log_weights=None):
@@ -210,7 +221,8 @@ class Feature_Selection():
             sample_weights = np.exp(sample_log_weights)
 
         post = np.exp(log_post)
-        data_transform = data[:, :, :, None] * np.sqrt(post)[:, None, None, :] * np.sqrt(sample_weights)[:, None, None, None]
+        data_transform = data[:, :, :, None] * np.sqrt(post)[:, None, None, :] * np.sqrt(sample_weights)[:, None, None,
+                                                                                 None]
         cache = []
         for k in range(ncomp):
             second = np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
@@ -226,7 +238,8 @@ class Feature_Selection():
                 log_replace_neginf(log_second_scaled)
                 # scaled log_first P(x_i|y, x_i x_k \neq missing label)
                 log_first_scaled = logsumexp(log_second_scaled, axis=3)
-                log_first_scaled = log_first_scaled[..., None] + np.moveaxis(log_first_scaled, (0,1,2), (1,2,0))[:, None,...]
+                log_first_scaled = log_first_scaled[..., None] + np.moveaxis(log_first_scaled, (0, 1, 2), (1, 2, 0))[:,
+                                                                 None, ...]
                 pmi = second_masked * (log_second_scaled - log_first_scaled)
             else:
                 log_first = np.add.outer(newlogC[:, :, k], newlogC[:, :, k])
@@ -236,6 +249,21 @@ class Feature_Selection():
             # pmi[log_first == 0] = 0
             cache.append(pmi[..., None])
         return np.concatenate(cache, axis=4)
+
+    # @classmethod
+    # def MI_feature_ranking(cls, data, lock=None):
+    #     """
+    #     Calculate sum_{j} sum_{x_i, x_j} P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j)) and sort
+    #     :param data:
+    #     :param lock:
+    #     :return:
+    #     """
+    #     score = cls.MI_score(data, rm_diag=True, lock=lock)
+    #     sigma = score.sum(axis=1)
+    #     ranking = np.argsort(sigma, axis=None)[::-1]
+    #     return ranking, sigma[ranking]
+
+
 
 
     # @classmethod
@@ -279,48 +307,7 @@ class Feature_Selection():
     #     return np.concatenate(cache, axis=4)
 
 
-    @classmethod
-    def MI_score(cls, data, rm_diag=False, lock=None):
-        """
-        Calculate sum_{x_i, x_j} P(x_i, x_j) ln(p(x_i, x_j) / p(x_i)p(x_j))
-        :return:
-        """
-        pmi = cls.pmi(data, lock=lock)
-        score = pmi.sum(axis=(1, 3))
-        #
-        # pmi = cls.pmi(data)
-        # if np.any(lock):
-        #     mask = (lock[..., None, None] + lock[None, None, ...]) == 0
-        #     score = np.sum(pmi * mask, axis=(1, 3))
-        # else:
-        #     score = pmi.sum(axis=(1, 3))
-        if rm_diag:
-            np.fill_diagonal(score, 0)
-        return score
 
-    @classmethod
-    def MI_score_conditional(cls, data, log_post, rm_diag=False, lock=None):
-        """
-        Calculate \sum_{x_i, x_j}P(x_i, x_j|y=k) ln(p(x_i, x_j|y=k) / p(x_i|y=k)p(x_j|y=k)).
-        :param data:
-        :param log_post: n - c
-        :param rm_diag:
-        :param lock: d - r
-        :return: d - d - c, c
-        """
-        ncomp = log_post.shape[1]
-        pmi = cls.pmi_conditional(data, log_post, lock=lock)
-        newlogW, _ = mstep(log_post, data)
-        score = np.sum(pmi, axis=(1, 3))
-        # if np.any(lock):
-        #     mask = (lock[..., None, None] + lock[None, None, ...]) == 0
-        #     score = np.sum(pmi * mask[..., None], axis=(1, 3))
-        # else:
-        #     score = np.sum(pmi, axis=(1, 3))
-        if rm_diag:
-            for k in xrange(ncomp):
-                np.fill_diagonal(score[..., k], 0)
-        return score, np.exp(newlogW)
 
 
 ################# Utilities ####################

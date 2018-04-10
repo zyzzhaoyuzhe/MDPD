@@ -139,8 +139,9 @@ class MDPD_standard(MDPD_basic):
         self._cache = defaultdict(list)
         self._folder = os.path.abspath('../' if folder is None else folder)
         self._cache['name'] = name
+        self._sample_log_weights = None
 
-    def fit(self, data, ncomp,
+    def fit(self, data, ncomp, sample_log_weights=None,
             features=None, init=None,
             init_label=None, init_para=None,
             epoch=30, update_features_per_epoch=None,
@@ -148,24 +149,31 @@ class MDPD_standard(MDPD_basic):
         " Fit the model to training data, using batch EM."
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
-        # initiate features
+
+        self._sample_log_weights = sample_log_weights
+
+        self.lock = np.array(lock, dtype=np.bool) if lock is not None else np.zeros((dim, nvocab), dtype=np.bool)
+
         if features is None:
             self.features = range(dim)
         elif isinstance(features, (list, np.ndarray)):
             self.features = features
         elif isinstance(features, int):
-            cand, _ = utils.Feature_Selection.MI_feature_ranking(data, lock=lock)
+            score = utils.Feature_Selection.MI_score(data, sample_log_weights=sample_log_weights, rm_diag=True, lock=lock)
+            sigma = score.sum(axis=1)
+            cand = np.argsort(sigma)[::-1]
             self.features = cand[:features]
         else:
             raise ValueError('invalid input type for <features>')
-        # self.features = features if features is not None else range(dim)
-        self.lock = np.array(lock, dtype=np.bool) if lock is not None else np.zeros((dim, nvocab), dtype=np.bool)
+
         logger.info(
             "Training an MDPD with dimension %i, %i features, sample size %i, vocab size %i and the target number of components %i",
             self.dim, len(self.features), nsample, self.nvocab, self.ncomp)
+
         self._model_init(data, init, init_label, init_para)
+
         self._apply_lock(data)
-        # statistics
+
         self._em_wrapper(data, epoch, update_features_per_epoch, verbose=verbose)
 
     def _em(self, data):
@@ -173,7 +181,7 @@ class MDPD_standard(MDPD_basic):
         # E-step
         log_post = self.log_posterior(data)
         # M-step (full M-step)
-        self.logW, self.logC = utils.mstep(log_post, data)
+        self.logW, self.logC = utils.mstep(log_post, data, sample_log_weights=self._sample_log_weights)
         self._apply_lock(data)
 
     def _em_wrapper(self, data, epoch, update_features_per_epoch, verbose=False):
@@ -252,15 +260,21 @@ class MDPD_standard(MDPD_basic):
         # data = data[:, self.features, :]
         lock = self.lock
         if np.any(lock):
+            data_weighted = data * self._sample_log_weights[:, None, None]
+
+            log_margin_prob = logsumexp(data_weighted, axis=0) - logsumexp(self._sample_log_weights)    # log(p_0(x_i))
+            utils.log_replace_neginf(log_margin_prob)
+
             newlogC = self.logC.copy()
             lock_broadcast = np.broadcast_to(lock[..., np.newaxis], newlogC.shape)
             newlogC[lock_broadcast] = NINF
-            log_margin_prob = np.log(data.sum(axis=0) / data.shape[0])
-            utils.log_replace_neginf(log_margin_prob)
-            log_margin_prob_sum = logsumexp(log_margin_prob, axis=1, keepdims=True, b=1 - lock)[..., np.newaxis]
+
+            log_margin_prob_sum = logsumexp(log_margin_prob, axis=1, keepdims=True, b=1 - lock)[
+                ..., np.newaxis]  # sum_{x_i} log(p_0(x_i)) where are not locked
             newlogC_sum = logsumexp(newlogC, axis=1, keepdims=True)
             newlogC = newlogC - newlogC_sum + log_margin_prob_sum
             newlogC[lock_broadcast] = np.broadcast_to(log_margin_prob[..., np.newaxis], newlogC.shape)[lock_broadcast]
+
             self.logC = newlogC
 
     def _update_features(self, data):
