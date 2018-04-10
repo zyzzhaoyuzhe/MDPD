@@ -187,7 +187,7 @@ class Feature_Selection():
 
 
     @classmethod
-    def pmi_conditional(cls, data, log_post, lock=None):
+    def pmi_conditional(cls, data, log_post, lock=None, sample_log_weights=None):
         """
         calculate P(x_i, x_j|y=k) ln(p(x_i, x_j|y=k) / p(x_i|y=k)p(x_j|y=k))
         :param data:
@@ -197,11 +197,17 @@ class Feature_Selection():
         nsample, dim, nvocab = data.shape
         ncomp = log_post.shape[1]
         newlogW, newlogC = mstep(log_post, data)
+
+        if sample_log_weights is None:
+            sample_weights = np.ones(nsample, dtype=np.float) / nsample
+        else:
+            sample_weights = np.exp(sample_log_weights)
+
         post = np.exp(log_post)
-        data_transform = data[:, :, :, None] * np.sqrt(post)[:, None, None, :]
+        data_transform = data[:, :, :, None] * np.sqrt(post)[:, None, None, :] * np.sqrt(sample_weights)[:, None, None, None]
         cache = []
         for k in range(ncomp):
-            second = 1. / nsample * np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
+            second = np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
             second = second / np.exp(newlogW[k])
             #
             if np.any(lock):
@@ -309,39 +315,6 @@ class Feature_Selection():
             for k in xrange(ncomp):
                 np.fill_diagonal(score[..., k], 0)
         return score, np.exp(newlogW)
-
-    # # TODO: to be deprecated
-    # @classmethod
-    # def MI_score_conditional_faster(cls, data, logpost, rm_diag=False):
-    #     nsample, dim, nvocab = data.shape
-    #     ncomp = logpost.shape[1]
-    #     newlogW, newlogC = mstep(logpost, data)
-    #     data_out = data[..., None, None, None] * data[:, None, None, :, :, None]
-    #     logpost_reshape = logpost[:, None, None, None, None, :]
-    #     log_first = newlogC[:, :, None, None, :] + newlogC[None, None, ...]
-    #     log_second = logsumexp(logpost_reshape, axis=0, b=data_out) - np.log(nsample) - np.reshape(newlogW,
-    #                                                                                                (1, 1, 1, 1, -1))
-    #     pmi = np.exp(log_second) * (log_second - log_first)
-    #     pmi[np.isinf(log_second)] = 0
-    #     score = np.sum(pmi, axis=(1, 3))
-    #     for k in xrange(ncomp):
-    #         if rm_diag:
-    #             np.fill_diagonal(score[..., k], 0)
-    #     return score, np.exp(newlogW)
-
-    # @classmethod
-    # def pmi_conditional_faster(cls, data, log_post):
-    #     nsample, dim, nvocab = data.shape
-    #     ncomp = log_post.shape[1]
-    #     newlogW, newlogC = mstep(log_post, data)
-    #     data_out = data[..., None, None, None] * data[:, None, None, :, :, None]
-    #     logpost_reshape = log_post[:, None, None, None, None, :]
-    #     log_first = newlogC[:, :, None, None, :] + newlogC[None, None, ...]
-    #     log_second = logsumexp(logpost_reshape, axis=0, b=data_out) - np.log(nsample) - np.reshape(newlogW,
-    #                                                                                                (1, 1, 1, 1, -1))
-    #     pmi = np.exp(log_second) * (log_second - log_first)
-    #     pmi[np.isinf(log_second)] = 0
-    #     return pmi
 
 
 ################# Utilities ####################
