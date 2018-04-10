@@ -54,7 +54,7 @@ def log_joint_prob_slice(data, logW_slice, logC_slice):
     return foo + logW_slice
 
 
-def mstep(log_post, data):
+def mstep(log_post, data, sample_log_weights=None):
     """
 
     :param log_post:  n-c
@@ -62,14 +62,20 @@ def mstep(log_post, data):
     :return:
     """
     nsample, dim, nvocab = data.shape
+
+    if sample_log_weights is None:
+        sample_log_weights = - np.log(nsample) * np.ones(nsample, dtype=np.float)
+
+    log_p_tilde = log_post + sample_log_weights[:, None]    # log(p(y|x_i)p_0(x_i))
+
+    newlogW = logsumexp(log_p_tilde, axis=0)
+    newlogW = newlogW - logsumexp(newlogW)
+
     # NOTE: use logsumexp with arg b might be very slow
-    tmp = logsumexp(log_post[:, None, None, :], axis=0)
-    newlogC = logsumexp(log_post[:, None, None, :], axis=0, b=data[..., None]) \
-              - logsumexp(log_post, axis=0)[None, None, :]
+    newlogC = logsumexp(log_p_tilde[:, None, None, :], axis=0, b=data[..., None])
     log_replace_neginf(newlogC)
-    newlogC -= logsumexp(newlogC, axis=1, keepdims=True)
-    # update W
-    newlogW = logsumexp(log_post, axis=0) - np.log(nsample)
+    newlogC -= logsumexp(newlogC, axis=(0, 1), keepdims=True)
+
     return newlogW, newlogC
 
 
