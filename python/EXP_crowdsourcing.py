@@ -137,17 +137,17 @@ def indi_rank(test, label):
 folder = '/media/vzhao/Data/crowdsourcing_datasets/'
 # folder = '/Users/vincent/Documents/Research/MDPD/crowdsourcing_datasets'
 
-# ## Bird data
-# reader = Crowd_Sourcing_Readers(os.path.join(folder, 'bird', 'bluebird_crowd.txt'), os.path.join(folder, 'bird', 'bluebird_truth.txt'))
-# train, label = reader.data, reader.labels
-# lock = np.zeros(train.shape[1:], dtype=np.bool)
-# print train.shape
-
-## Dog Data
-reader = Crowd_Sourcing_Readers(os.path.join(folder, 'dog', 'dog_crowd.txt'), os.path.join(folder, 'dog', 'dog_truth.txt'))
+## Bird data
+reader = Crowd_Sourcing_Readers(os.path.join(folder, 'bird', 'bluebird_crowd.txt'), os.path.join(folder, 'bird', 'bluebird_truth.txt'))
 train, label = reader.data, reader.labels
-lock = np.zeros(train.shape[1:],dtype=np.bool)
-lock[:, -1] = 1
+lock = np.zeros(train.shape[1:], dtype=np.bool)
+print train.shape
+
+# ## Dog Data
+# reader = Crowd_Sourcing_Readers(os.path.join(folder, 'dog', 'dog_crowd.txt'), os.path.join(folder, 'dog', 'dog_truth.txt'))
+# train, label = reader.data, reader.labels
+# lock = np.zeros(train.shape[1:],dtype=np.bool)
+# lock[:, -1] = 1
 
 
 # ## Web Data

@@ -140,53 +140,6 @@ class MDPD_standard(MDPD_basic):
         self._folder = os.path.abspath('../' if folder is None else folder)
         self._cache['name'] = name
 
-    def MI_residue(self, data):
-        log_post = self.log_posterior(data)
-        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=self.lock)
-        res = np.sum(score.sum(axis=1) * weights[np.newaxis, :]) / (self.dim * (self.dim - 1))
-        logger.info('The mutual information residue (include all features) is {}'.format(res))
-
-        features = np.array(self.features)
-        score_select = score[features[:, np.newaxis], features, :]
-        res_select = np.sum(score_select.sum(axis=1) * weights[np.newaxis, :]) / (len(features) * (len(features) - 1))
-        logger.info('The mutual information residue (within selected features) is {}'.format(res_select))
-
-    def _apply_lock(self, data):
-        "Apply the lock to worker i for the component k, so that i is not discriminant at k."
-        # data = data[:, self.features, :]
-        lock = self.lock
-        if np.any(lock):
-            newlogC = self.logC.copy()
-            lock_broadcast = np.broadcast_to(lock[..., np.newaxis], newlogC.shape)
-            newlogC[lock_broadcast] = NINF
-            log_margin_prob = np.log(data.sum(axis=0) / data.shape[0])
-            utils.log_replace_neginf(log_margin_prob)
-            log_margin_prob_sum = logsumexp(log_margin_prob, axis=1, keepdims=True, b=1 - lock)[..., np.newaxis]
-            newlogC_sum = logsumexp(newlogC, axis=1, keepdims=True)
-            newlogC = newlogC - newlogC_sum + log_margin_prob_sum
-            newlogC[lock_broadcast] = np.broadcast_to(log_margin_prob[..., np.newaxis], newlogC.shape)[lock_broadcast]
-            self.logC = newlogC
-
-    def _model_init(self, data, init, init_label, init_para):
-        "initialize logW and logC."
-        nsample, dim, nvocab = data.shape
-        if isinstance(init, basestring):
-            if init == "majority":
-                self.logW, self.logC = utils.Crowdsourcing_initializer.init_mv(data, self.features,
-                                                                               rm_last=np.any(self.lock))
-            elif init == "random":
-                self.logW, self.logC = utils.Crowdsourcing_initializer.init_random_uniform(dim, self.ncomp, self.nvocab)
-            elif init == "spectral":
-                self.logW, self.logC = utils.init_spectral(data, self.ncomp)
-            else:
-                raise ValueError('init is not valid. It needs to one of "majority", "random", and "spectral"')
-        elif isinstance(init_label, np.ndarray):
-            self.logW, self.logC = utils.mstep(init_label, data[:, self.features, :])
-        elif isinstance(init_para, (tuple,list)):
-            self.logW, self.logC = init_para
-        else:
-            raise ValueError('No valid initialization.')
-
     def fit(self, data, ncomp,
             features=None, init=None,
             init_label=None, init_para=None,
@@ -251,15 +204,6 @@ class MDPD_standard(MDPD_basic):
                 cPickle.dump(self._cache, h)
             logger.info('NOTE: all records and stats are exported to {}'.format(tmp_folder))
 
-
-    def _update_features(self, data):
-        """update features according to conditional information residue"""
-        log_post = self.log_posterior(data)
-        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=self.lock)
-        sigma = np.sum(score.sum(axis=1) * weights[np.newaxis, :], axis=1)
-        cand = np.argsort(sigma)[::-1]
-        self.features = cand[:len(self.features)]
-
     def _verbose_per_epoch(self, ep, data):
         dim = data.shape[1]
 
@@ -283,40 +227,49 @@ class MDPD_standard(MDPD_basic):
                     super(MDPD_standard, self).log_likelihood(data),
                     res)
 
-    def change_features(self, data, features=None):
-        """Change the feature set"""
-        features = features or range(self.dim)
-        self._assert_features(features)
-        self.features = features
-
-    # fine tune
-    def refine(self, data, features=None, niter=20, verbose=False):
-        """
-        Fine tune the model
-        :param data:
-        :param features:
-        :param niter:
-        :return:
-        """
-        new_features = features or range(self.dim)
-        self._assert_features(new_features)
-        if set(new_features) != set(self.features):
-            logger.info('Fine tune the model with the feature set {}'.format(new_features))
-            self.change_features(data, features=new_features)
-            self.features = new_features
+    def _model_init(self, data, init, init_label, init_para):
+        "initialize logW and logC."
+        nsample, dim, nvocab = data.shape
+        if isinstance(init, basestring):
+            if init == "majority":
+                self.logW, self.logC = utils.Crowdsourcing_initializer.init_mv(data, self.features,
+                                                                               rm_last=np.any(self.lock))
+            elif init == "random":
+                self.logW, self.logC = utils.Crowdsourcing_initializer.init_random_uniform(dim, self.ncomp, self.nvocab)
+            elif init == "spectral":
+                self.logW, self.logC = utils.init_spectral(data, self.ncomp)
+            else:
+                raise ValueError('init is not valid. It needs to one of "majority", "random", and "spectral"')
+        elif isinstance(init_label, np.ndarray):
+            self.logW, self.logC = utils.mstep(init_label, data[:, self.features, :])
+        elif isinstance(init_para, (tuple,list)):
+            self.logW, self.logC = init_para
         else:
-            logger.info('Fine tune the model.')
-        self._em_wrapper(data, niter, verbose=verbose)
+            raise ValueError('No valid initialization.')
 
-    @staticmethod
-    def _assert_features(features):
-        assert not isinstance(features, basestring)
+    def _apply_lock(self, data):
+        "Apply the lock to worker i for the component k, so that i is not discriminant at k."
+        # data = data[:, self.features, :]
+        lock = self.lock
+        if np.any(lock):
+            newlogC = self.logC.copy()
+            lock_broadcast = np.broadcast_to(lock[..., np.newaxis], newlogC.shape)
+            newlogC[lock_broadcast] = NINF
+            log_margin_prob = np.log(data.sum(axis=0) / data.shape[0])
+            utils.log_replace_neginf(log_margin_prob)
+            log_margin_prob_sum = logsumexp(log_margin_prob, axis=1, keepdims=True, b=1 - lock)[..., np.newaxis]
+            newlogC_sum = logsumexp(newlogC, axis=1, keepdims=True)
+            newlogC = newlogC - newlogC_sum + log_margin_prob_sum
+            newlogC[lock_broadcast] = np.broadcast_to(log_margin_prob[..., np.newaxis], newlogC.shape)[lock_broadcast]
+            self.logC = newlogC
 
-    def log_likelihood(self, data):
-        data_selected = data[:, self.features, :]
-        log_joint = utils.log_joint_prob_fast(data_selected, self.logW, self.logC[self.features, ...])
-        log_marginal_x = logsumexp(log_joint, axis=1)
-        return log_marginal_x.mean()
+    def _update_features(self, data):
+        """update features according to conditional information residue"""
+        log_post = self.log_posterior(data)
+        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=self.lock)
+        sigma = np.sum(score.sum(axis=1) * weights[np.newaxis, :], axis=1)
+        cand = np.argsort(sigma)[::-1]
+        self.features = cand[:len(self.features)]
 
     def log_posterior(self, data):
         data_selected = data[:, self.features, :]
@@ -324,6 +277,51 @@ class MDPD_standard(MDPD_basic):
         normalizer = logsumexp(log_joint, axis=1, keepdims=True)
         return log_joint - normalizer
 
+    def log_likelihood(self, data):
+        data_selected = data[:, self.features, :]
+        log_joint = utils.log_joint_prob_fast(data_selected, self.logW, self.logC[self.features, ...])
+        log_marginal_x = logsumexp(log_joint, axis=1)
+        return log_marginal_x.mean()
+
+    def MI_residue(self, data):
+        log_post = self.log_posterior(data)
+        score, weights = utils.Feature_Selection.MI_score_conditional(data, log_post, rm_diag=True, lock=self.lock)
+        res = np.sum(score.sum(axis=1) * weights[np.newaxis, :]) / (self.dim * (self.dim - 1))
+        logger.info('The mutual information residue (include all features) is {}'.format(res))
+
+        features = np.array(self.features)
+        score_select = score[features[:, np.newaxis], features, :]
+        res_select = np.sum(score_select.sum(axis=1) * weights[np.newaxis, :]) / (len(features) * (len(features) - 1))
+        logger.info('The mutual information residue (within selected features) is {}'.format(res_select))
+
+    def change_features(self, data, features=None):
+        """Change the feature set"""
+        features = features or range(self.dim)
+        self._assert_features(features)
+        self.features = features
+
+    @staticmethod
+    def _assert_features(features):
+        assert not isinstance(features, basestring)
+
+        # fine tune
+        def refine(self, data, features=None, niter=20, verbose=False):
+            """
+            Fine tune the model
+            :param data:
+            :param features:
+            :param niter:
+            :return:
+            """
+            new_features = features or range(self.dim)
+            self._assert_features(new_features)
+            if set(new_features) != set(self.features):
+                logger.info('Fine tune the model with the feature set {}'.format(new_features))
+                self.change_features(data, features=new_features)
+                self.features = new_features
+            else:
+                logger.info('Fine tune the model.')
+            self._em_wrapper(data, niter, verbose=verbose)
 
     def align(self, data, label, features=None):
         """
@@ -354,7 +352,6 @@ class MDPD_standard(MDPD_basic):
         # print order
         logger.info('Swap the components by {}.'.format(best_order))
         self.reorder(best_order)
-
 
     def _tbs(self):
         names = ['features',
