@@ -146,7 +146,7 @@ class MDPD_standard(MDPD_basic):
             init_label=None, init_para=None,
             epoch=30, update_features_per_epoch=None,
             verbose=True, lock=None):
-        " Fit the model to training data, using batch EM."
+        "Fit the model to training data, using batch EM."
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
 

@@ -74,7 +74,7 @@ def mstep(log_post, data, sample_log_weights=None):
     # NOTE: use logsumexp with arg b might be very slow
     newlogC = logsumexp(log_p_tilde[:, None, None, :], axis=0, b=data[..., None])
     log_replace_neginf(newlogC)
-    newlogC -= logsumexp(newlogC, axis=(0, 1), keepdims=True)
+    newlogC -= logsumexp(newlogC, axis=1, keepdims=True)
 
     return newlogW, newlogC
 
@@ -213,7 +213,7 @@ class Feature_Selection():
         """
         nsample, dim, nvocab = data.shape
         ncomp = log_post.shape[1]
-        newlogW, newlogC = mstep(log_post, data)
+        _, newlogC = mstep(log_post, data)
 
         if sample_log_weights is None:
             sample_weights = np.ones(nsample, dtype=np.float) / nsample
@@ -226,8 +226,8 @@ class Feature_Selection():
         cache = []
         for k in range(ncomp):
             second = np.tensordot(data_transform[:, :, :, k], data_transform[:, :, :, k], axes=(0, 0))
-            second = second / np.exp(newlogW[k])
-            #
+            second = second / np.sum(second, axis=(1, 3), keepdims=True)
+
             if np.any(lock):
                 mask = (lock[..., None, None] + lock[None, None, ...]) == 0
                 # scaled log_second
