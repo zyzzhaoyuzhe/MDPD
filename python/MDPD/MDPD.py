@@ -453,6 +453,60 @@ class MDPD_online(MDPD_standard):
         return tbs
 
 
+class Hierachical_MDPD(object):
+    def __init__(self, depth, width=2):
+        self.depth = depth
+        self.width = width
+        total = (width ** (depth + 1) - 1) / (width - 1)
+        self.models = [None] * int(total)
+        self._debug = [None] * int(total)
+
+    def fit(self, data, features, epoch=100):
+        nsample = data.shape[0]
+        width, depth = self.width, self.depth
+
+        cache = [(0, - np.log(nsample) * np.ones(nsample))] # index of the model to be trained (for BFS)
+
+        while cache:
+            idx, sample_log_weights = cache.pop(0)
+
+            logging.info('Training model ({}, {}) (depth = {})'.format(int(np.log2(idx + 1)), idx + 1 - 2 ** int(np.log2(idx + 1)), self.depth))
+            model = self._fit_one_model(data, features, sample_log_weights, epoch)
+            self.models[idx] = model
+            self._debug[idx] = sample_log_weights
+
+            log_post = model.log_posterior(data)
+            log_p_tilde = log_post + sample_log_weights[:, None]
+            next_sample_log_weights = log_p_tilde - logsumexp(log_p_tilde, axis=0, keepdims=True)
+
+            if width * idx + width < len(self.models):
+                for k in xrange(width):
+                    cache.append((width * idx + k + 1, next_sample_log_weights[:, k]))
+            #
+            #
+            # # log_post = model.log_posterior(data)[:, 0]
+            # # next_sample_log_weights = log_post - logsumexp(log_post)
+            #
+            #
+            #
+            # if 2 * idx + 2 < len(self.models):
+            #
+            #     cache.append((2 * idx + 1, next_sample_log_weights[:, 0]))
+            #
+            #     cache.append((2 * idx + 1, next_sample_log_weights))
+            #     cache.append((2 * idx + 2, next_sample_log_weights))
+
+    def _fit_one_model(self, data, features, sample_log_weights, epoch):
+        model = MDPD_standard()
+        model.fit(data, self.width, sample_log_weights=sample_log_weights, init='random', features=features, epoch=epoch, verbose=False)
+        return model
+
+    @property
+    def leaf_nodes(self):
+        return self.models[- (self.width**self.depth):]
+
+
+
 class MDPD2(MDPD_basic):
     def __init__(self):
         super(MDPD2, self).__init__()
