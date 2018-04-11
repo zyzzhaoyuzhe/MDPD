@@ -482,24 +482,36 @@ class Hierachical_MDPD(object):
             if width * idx + width < len(self.models):
                 for k in xrange(width):
                     cache.append((width * idx + k + 1, next_sample_log_weights[:, k]))
-            #
-            #
-            # # log_post = model.log_posterior(data)[:, 0]
-            # # next_sample_log_weights = log_post - logsumexp(log_post)
-            #
-            #
-            #
-            # if 2 * idx + 2 < len(self.models):
-            #
-            #     cache.append((2 * idx + 1, next_sample_log_weights[:, 0]))
-            #
-            #     cache.append((2 * idx + 1, next_sample_log_weights))
-            #     cache.append((2 * idx + 2, next_sample_log_weights))
 
     def _fit_one_model(self, data, features, sample_log_weights, epoch):
         model = MDPD_standard()
         model.fit(data, self.width, sample_log_weights=sample_log_weights, init='random', features=features, epoch=epoch, verbose=False)
         return model
+
+    def log_posterior(self, data):
+        "Inference of the hierachical MDPD. (BFS)"
+        nsample = data.shape[0]
+
+        cache = [(0, np.zeros((nsample, 1)))]
+        leafs = []
+
+        while cache:
+            idx, log_joint = cache.pop(0)
+
+            model = self.models[idx]
+            log_post = model.log_posterior(data)
+            new_log_joint = log_post + log_joint
+
+            if idx * self.width + 1 >= len(self.models):
+                # leaf node
+                leafs.append(new_log_joint)
+            else:
+                for k in xrange(self.width):
+                    cache.append((idx * self.width + k + 1, new_log_joint[:, k][:, None]))
+
+        log_post = np.concatenate(leafs, axis=1)
+        log_post = log_post - logsumexp(log_post, axis=1, keepdims=True)
+        return log_post
 
     @property
     def leaf_nodes(self):
