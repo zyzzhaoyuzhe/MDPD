@@ -126,8 +126,12 @@ class MDPD_basic(object):
 
         with open(filename, 'rb') as f:
             tbl = cPickle.load(f)
-            for key, val in tbl.iteritems():
-                setattr(self, key, val)
+            self.load_dic(tbl)
+
+    def load_dic(self, tbl):
+        "Load the model from the dictionary tbl."
+        for key, val in tbl.iteritems():
+            setattr(self, key, val)
 
 
 class MDPD_standard(MDPD_basic):
@@ -517,6 +521,40 @@ class Hierachical_MDPD(object):
     def leaf_nodes(self):
         return self.models[- (self.width**self.depth):]
 
+    def _tbs(self):
+        names = ['depth',
+                 'width'
+                 ]
+
+        tbs = {}
+        for name in names:
+            tbs[name] = getattr(self, name)
+
+        return tbs
+
+    def save(self, filename):
+        cache = self._tbs()
+
+        cache['models'] = [model._tbs() for model in self.models]
+
+        with open(filename, 'wb') as f:
+            cPickle.dump(cache, f)
+
+    def load(self, filename):
+        with open(filename, 'rb') as f:
+            cache = cPickle.load(f)
+
+        def create_model(tbl):
+            model = MDPD_standard()
+            model.load_dic(tbl)
+            return model
+
+        for key, val in cache.iteritems():
+            if hasattr(self, key):
+                if key == 'models':
+                    self.models = [create_model(tbl) for tbl in cache['models']]
+                else:
+                    setattr(self, key, val)
 
 
 class MDPD2(MDPD_basic):
