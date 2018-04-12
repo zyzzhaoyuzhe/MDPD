@@ -91,18 +91,19 @@ class MDPD_initializer():
 
 class Crowdsourcing_initializer(MDPD_initializer):
     @classmethod
-    def init_mv(cls, data, features, rm_last=False):  # majority vote
+    def init_mv(cls, data, features, rm_last=False):
+        'majority vote'
         data_selected = data[:, features, :]
+
         if rm_last:
             votes = np.sum(data_selected[..., :-1], axis=1, dtype=np.float)
         else:
             votes = data_selected.sum(axis=1, dtype=np.float)  # n-r
         log_votes = np.log(votes)
-        # replace -inf with NINF
         log_replace_neginf(log_votes)
         log_votes_sum = logsumexp(log_votes, axis=1, keepdims=True)
-        # normalize log_post
         log_post = log_votes - log_votes_sum
+
         return mstep(log_post, data)
 
     @classmethod
@@ -213,7 +214,7 @@ class Feature_Selection():
         """
         nsample, dim, nvocab = data.shape
         ncomp = log_post.shape[1]
-        _, newlogC = mstep(log_post, data)
+        _, newlogC = mstep(log_post, data, sample_log_weights=sample_log_weights)
 
         if sample_log_weights is None:
             sample_weights = np.ones(nsample, dtype=np.float) / nsample
