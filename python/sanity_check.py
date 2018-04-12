@@ -37,5 +37,4 @@ score = utils.Feature_Selection.MI_score(train[pick, ...] , rm_diag=True)
 sigma2 = score.sum(axis=1) / (DIM-1)
 
 
-
 pass
