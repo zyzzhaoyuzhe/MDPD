@@ -213,7 +213,7 @@ class Feature_Selection():
         """
         nsample, dim, nvocab = data.shape
         ncomp = log_post.shape[1]
-        _, newlogC = mstep(log_post, data)
+        _, newlogC = mstep(log_post, data, sample_log_weights=sample_log_weights)
 
         if sample_log_weights is None:
             sample_weights = np.ones(nsample, dtype=np.float) / nsample
