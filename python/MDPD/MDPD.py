@@ -150,7 +150,7 @@ class MDPD_standard(MDPD_basic):
             init_label=None, init_para=None,
             epoch=30, update_features_per_epoch=None,
             verbose=True, lock=None):
-        "Fit the model to training data, using batch EM."
+        "Fit the model with batch EM."
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
 
@@ -184,6 +184,7 @@ class MDPD_standard(MDPD_basic):
         """One step EM iteration"""
         # E-step
         log_post = self.log_posterior(data)
+
         # M-step (full M-step)
         self.logW, self.logC = utils.mstep(log_post, data, sample_log_weights=self._sample_log_weights)
         self._apply_lock(data)
@@ -390,14 +391,20 @@ class MDPD_online(MDPD_standard):
         super(MDPD_online, self).__init__()
         self._log_post = None
 
-    def fit(self, data, ncomp,
-            features=None, init="majority",
+    def fit(self, data, ncomp, sample_log_weights=None,
+            features=None, init="random",
             init_label=None, init_para=None,
             epoch=30, batch=None, update_features_per_batch=None,
             verbose=True, lock=None):
+        "Fit the model with online EM"
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
-        # initiate features
+
+        self._sample_log_weights = sample_log_weights
+
+        # lock is not used. All parameters are trainable.
+        self.lock = np.zeros((dim, nvocab), dtype=np.bool)
+
         if features is None:
             self.features = range(dim)
             if update_features_per_batch is not None:
@@ -409,22 +416,28 @@ class MDPD_online(MDPD_standard):
                 update_features_per_batch = None
                 logger.warn('update_features_per_batch is ignored, because features is not int.')
         elif isinstance(features, int):
-            cand, _ = utils.Feature_Selection.MI_feature_ranking(data, lock=lock)
+            score = utils.Feature_Selection.MI_score(data, sample_log_weights=sample_log_weights, rm_diag=True, lock=lock)
+            sigma = score.sum(axis=1)
+            cand = np.argsort(sigma)[::-1]
             self.features = cand[:features]
         else:
             raise ValueError('invalid input type for <features>')
+
         if update_features_per_batch is not None and batch is None:
             update_features_per_batch = None
             logger.warn('update_features_per_batch is ignored, because batch is not set. Batch EM will be used to train the model.')
-        # lock is not used. All parameters are trainable.
-        self.lock = np.zeros((dim, nvocab), dtype=np.bool)
+
         logger.info(
             "Training an MDPD with dimension %i, %i features, sample size %i, vocab size %i and the target number of components %i",
             self.dim, len(self.features), nsample, self.nvocab, self.ncomp)
+
         self._model_init(data, init, init_label, init_para)
+
         if batch is None:
+            # batch EM
             self._em_wrapper(data, epoch, None, verbose=verbose)
         else:
+            # Online EM, to trigger online EM, batch (batch_size) is needed
             self._log_post = self.log_posterior(data)
             self._em_online_wrapper(data, epoch, batch, update_features_per_batch, verbose=verbose)
 
@@ -433,8 +446,9 @@ class MDPD_online(MDPD_standard):
         # partial E-step
         log_post_batch = self.log_posterior(data[batch_index, ...])
         self._log_post[batch_index, ...] = log_post_batch
-        # M-step
-        self.logW, self.logC = utils.mstep(self._log_post, data)
+
+        # M-step (full M-step)
+        self.logW, self.logC = utils.mstep(self._log_post, data, sample_log_weights=self._sample_log_weights)
 
     def _em_online_wrapper(self, data, epoch, batch, update_features_per_batch, verbose=False):
         nsample = data.shape[0]
