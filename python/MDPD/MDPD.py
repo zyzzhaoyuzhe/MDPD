@@ -492,28 +492,46 @@ class Hierachical_MDPD(object):
         model.fit(data, self.width, sample_log_weights=sample_log_weights, init='random', features=features, epoch=epoch, verbose=False)
         return model
 
-    def log_posterior(self, data):
-        "Inference of the hierachical MDPD. (BFS)"
+    def inference_path(self, data):
+        "a path of the log weights on data through the model tree."
         nsample = data.shape[0]
 
-        cache = [(0, np.zeros((nsample, 1)))]
-        leafs = []
+        total = int((self.width ** (self.depth + 1) - 1) / (self.width - 1))
+        path = [None] * total # log weights on the sample
+        path[0] = np.zeros((nsample, 1))
 
-        while cache:
-            idx, log_joint = cache.pop(0)
+        for idx in xrange(total - self.width ** self.depth):
+            log_joint = path[idx]
 
             model = self.models[idx]
             log_post = model.log_posterior(data)
             new_log_joint = log_post + log_joint
 
-            if idx * self.width + 1 >= len(self.models):
-                # leaf node
-                leafs.append(new_log_joint)
-            else:
-                for k in xrange(self.width):
-                    cache.append((idx * self.width + k + 1, new_log_joint[:, k][:, None]))
+            for k in xrange(self.width):
+                child_idx = idx * self.width + k + 1
+                path[child_idx] = new_log_joint[:, k][:, None]
 
-        log_post = np.concatenate(leafs, axis=1)
+        return path
+
+    def log_posterior(self, data):
+        "Inference of the hierachical MDPD. (BFS)"
+        path = self.inference_path(data)
+
+        cache = []
+
+        total = len(self.models)
+        n_leafs = self.width ** self.depth
+
+        for i, log_joint in enumerate(path[-n_leafs:]):
+            idx = total - n_leafs + i
+
+            model = self.models[idx]
+            log_post = model.log_posterior(data)
+            new_log_joint = log_post + log_joint
+
+            cache.append(new_log_joint)
+
+        log_post = np.concatenate(cache, axis=1)
         log_post = log_post - logsumexp(log_post, axis=1, keepdims=True)
         return log_post
 
@@ -523,7 +541,8 @@ class Hierachical_MDPD(object):
 
     def _tbs(self):
         names = ['depth',
-                 'width'
+                 'width',
+                 '_debug'
                  ]
 
         tbs = {}
