@@ -131,7 +131,7 @@ class MDPD_basic(object):
 
     def load_dic(self, tbl):
         "Load the model from the dictionary tbl."
-        for key, val in tbl.iteritems():
+        for key, val in tbl.items():
             setattr(self, key, val)
 
 
@@ -604,7 +604,7 @@ class Hierachical_MDPD(object):
             model.load_dic(tbl)
             return model
 
-        for key, val in cache.iteritems():
+        for key, val in cache.items():
             if hasattr(self, key):
                 if key == 'models':
                     self.models = [create_model(tbl) for tbl in cache['models']]
