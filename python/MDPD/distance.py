@@ -1,6 +1,6 @@
 # Jensen Shannon Divergence between two multi-dimensional discrete probability
 # prob1[][:,k1] and prob1[][:,k2]
-from utils import mylog
+from MDPD.utils import mylog
 import numpy as np
 import sys
 

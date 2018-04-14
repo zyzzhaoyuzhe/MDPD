@@ -8,14 +8,14 @@ import matplotlib.pyplot as plt
 from MDPD import utils, readers, MDPD
 
 
-# folder = "/media/vzhao/Data/MNIST"
-folder = "/Users/vincent/Documents/Research/MDPD/MNIST"
+folder = "/media/vzhao/Data/MNIST"
+# folder = "/Users/vincent/Documents/Research/MDPD/MNIST"
 mnist = readers.MNIST_Reader(folder, binarized=True)
 train, labels = mnist.train, mnist.labels
 _, dim, _ = train.shape
 # data per digit
 train_uni = [None] * 10
-for dig in xrange(10):
+for dig in range(10):
     train_uni[dig] = train[labels==dig,...]
 # small sample
 train_small = train[:5000,...]
@@ -24,6 +24,16 @@ labels_small = labels[:5000]
 data, labs = train_small, labels_small
 
 #########################
+hmodel = MDPD.Hierachical_MDPD(2)
+hmodel.fit(data, 300, epoch=2)
+
+
+
+
+
+
+
+
 Ntop = 200
 model = MDPD.MDPD_online()
 model.fit(data, ncomp=10,
@@ -45,7 +55,7 @@ model.fit(train, 10, 200)
 
 
 
-print 'END'
+print('END')
 
 # nsample, d1, d2 = X_train.shape
 # dim = d1*d2

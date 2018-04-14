@@ -137,17 +137,17 @@ def indi_rank(test, label):
 folder = '/media/vzhao/Data/crowdsourcing_datasets/'
 # folder = '/Users/vincent/Documents/Research/MDPD/crowdsourcing_datasets'
 
-## Bird data
-reader = Crowd_Sourcing_Readers(os.path.join(folder, 'bird', 'bluebird_crowd.txt'), os.path.join(folder, 'bird', 'bluebird_truth.txt'))
-train, label = reader.data, reader.labels
-lock = np.zeros(train.shape[1:], dtype=np.bool)
-print train.shape
-
-# ## Dog Data
-# reader = Crowd_Sourcing_Readers(os.path.join(folder, 'dog', 'dog_crowd.txt'), os.path.join(folder, 'dog', 'dog_truth.txt'))
+# ## Bird data
+# reader = Crowd_Sourcing_Readers(os.path.join(folder, 'bird', 'bluebird_crowd.txt'), os.path.join(folder, 'bird', 'bluebird_truth.txt'))
 # train, label = reader.data, reader.labels
-# lock = np.zeros(train.shape[1:],dtype=np.bool)
-# lock[:, -1] = 1
+# lock = np.zeros(train.shape[1:], dtype=np.bool)
+# print train.shape
+
+## Dog Data
+reader = Crowd_Sourcing_Readers(os.path.join(folder, 'dog', 'dog_crowd.txt'), os.path.join(folder, 'dog', 'dog_truth.txt'))
+train, label = reader.data, reader.labels
+lock = np.zeros(train.shape[1:],dtype=np.bool)
+lock[:, -1] = 1
 
 
 # ## Web Data
@@ -168,7 +168,9 @@ print train.shape
 # features, score = utils.Feature_Selection.MI_feature_ranking(train, lock=lock)
 Ntop = 15
 model = MDPD.MDPD_standard()
-model.fit(train, ncomp=5, init='majority', verbose=True, features=Ntop, epoch=50, lock=lock)
+model.fit(train, ncomp=5, init='majority', verbose=False, \
+          features=Ntop, epoch=50, lock=lock,
+          sample_log_weights=np.ones(train.shape[0]))
 model.accuracy(train, label)
 model.MI_residue(train)
 

@@ -2,12 +2,12 @@
 Display methods for MDPD objects
 """
 from __future__ import division
-from utils import *
+from MDPD.utils import *
+from MDPD import misc
 import random
 import numpy as np
-import cPickle
+import pickle
 import copy
-import misc
 import matplotlib.pyplot as plt
 import math
 

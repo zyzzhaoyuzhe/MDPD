@@ -6,7 +6,7 @@ Basic MDPD class is defined in this module which is composed of basic functions.
 """
 from __future__ import division
 
-import cPickle
+import pickle
 import os
 import copy
 import itertools
@@ -15,9 +15,10 @@ from collections import defaultdict
 import logging
 import numpy as np
 from copy import deepcopy
-from utils import logsumexp
 
-import utils
+from MDPD.utils import logsumexp
+from MDPD import utils
+
 
 NINF = np.finfo('f').min
 
@@ -119,13 +120,13 @@ class MDPD_basic(object):
         tbs = self._tbs()
 
         with open(filename, 'wb') as f:
-            cPickle.dump(tbs, f)
+            pickle.dump(tbs, f)
 
     def load(self, filename):
         "This methods is to load the model from 'filename'"
 
         with open(filename, 'rb') as f:
-            tbl = cPickle.load(f)
+            tbl = pickle.load(f)
             self.load_dic(tbl)
 
     def load_dic(self, tbl):
@@ -171,7 +172,7 @@ class MDPD_standard(MDPD_basic):
             raise ValueError('invalid input type for <features>')
 
         logger.info(
-            "Training an MDPD with dimension %i, %i features, sample size %i, vocab size %i and the target number of components %i",
+            "Training an MDPD using batch EM \n\t dimension %i \n\t %i features \n\t sample size %i \n\t vocab size %i \n\t the target number of components %i",
             self.dim, len(self.features), nsample, self.nvocab, self.ncomp)
 
         self._model_init(data, init, init_label, init_para)
@@ -199,7 +200,7 @@ class MDPD_standard(MDPD_basic):
             self._cache['update_features_per_epoch'] = update_features_per_epoch
             self._cache['features'].append((0, self.features))
 
-        for ep in xrange(epoch):
+        for ep in range(epoch):
             if ep > 0 and update_features_per_epoch is not None and ep % update_features_per_epoch == 0:
                 self._update_features(data)
 
@@ -213,8 +214,8 @@ class MDPD_standard(MDPD_basic):
                 self.save(os.path.join(checkpoint_folder, 'epoch_{}'.format(ep)))
 
         if verbose:
-            with open(os.path.join(tmp_folder, 'training_stats.p'), 'w') as h:
-                cPickle.dump(self._cache, h)
+            with open(os.path.join(tmp_folder, 'training_stats.p'), 'w') as f:
+                pickle.dump(self._cache, f)
             logger.info('NOTE: all records and stats are exported to {}'.format(tmp_folder))
 
     def _verbose_per_epoch(self, ep, data):
@@ -243,7 +244,7 @@ class MDPD_standard(MDPD_basic):
     def _model_init(self, data, init, init_label, init_para):
         "initialize logW and logC."
         nsample, dim, nvocab = data.shape
-        if isinstance(init, basestring):
+        if isinstance(init, str):
             if init == "majority":
                 self.logW, self.logC = utils.Crowdsourcing_initializer.init_mv(data, self.features,
                                                                                rm_last=np.any(self.lock))
@@ -321,7 +322,7 @@ class MDPD_standard(MDPD_basic):
 
     @staticmethod
     def _assert_features(features):
-        assert not isinstance(features, basestring)
+        assert not isinstance(features, str)
 
         # fine tune
         def refine(self, data, features=None, niter=20, verbose=False):
@@ -428,8 +429,8 @@ class MDPD_online(MDPD_standard):
             logger.warn('update_features_per_batch is ignored, because batch is not set. Batch EM will be used to train the model.')
 
         logger.info(
-            "Training an MDPD with dimension %i, %i features, sample size %i, vocab size %i and the target number of components %i",
-            self.dim, len(self.features), nsample, self.nvocab, self.ncomp)
+            "Training an MDPD using online EM \n\t dimension %i \n\t %i features \n\t sample size %i \n\t vocab size %i \n\t the target number of components %i \n\t epoch, batch = %i, %i",
+            self.dim, len(self.features), nsample, self.nvocab, self.ncomp, epoch, batch)
 
         self._model_init(data, init, init_label, init_para)
 
@@ -451,16 +452,37 @@ class MDPD_online(MDPD_standard):
         self.logW, self.logC = utils.mstep(self._log_post, data, sample_log_weights=self._sample_log_weights)
 
     def _em_online_wrapper(self, data, epoch, batch, update_features_per_batch, verbose=False):
+        if verbose:
+            tmp_folder = tempfile.mkdtemp(dir=self._folder)
+            checkpoint_folder = os.path.join(tmp_folder, 'checkpoints')
+            os.mkdir(checkpoint_folder)
+
+            self._cache['epoch'] = epoch
+            self._cache['batch'] = batch
+            self._cache['update_features_per_batch'] = update_features_per_batch
+            self._cache['features'].append(((0, 0), self.features))
+
         nsample = data.shape[0]
         nbatch = int(nsample / batch)
-        for ep in xrange(epoch):
+        for ep in range(epoch):
             data_idx_rand = np.random.permutation(nsample)
-            for nb in xrange(nbatch):
+            for nb in range(nbatch):
                 if update_features_per_batch is not None and nb % update_features_per_batch == 0 and ep + nb > 0:
                     self._update_features(data)
+
+                    if verbose:
+                        self._cache['features'].append(((ep, nb), self.features))
+
                 self._em_online(data, data_idx_rand[nb * batch : (nb + 1) * batch])
+
             if verbose:
                 self._verbose_per_epoch(ep, data)
+                self.save(os.path.join(checkpoint_folder, 'epoch_{}'.format(ep)))
+
+        if verbose:
+            with open(os.path.join(tmp_folder, 'training_stats.p'), 'wb') as f:
+                pickle.dump(self._cache, f)
+            logger.info('NOTE: all records and stats are exported to {}'.format(tmp_folder))
 
     def _tbs(self):
         names = ['_log_post']
@@ -479,7 +501,7 @@ class Hierachical_MDPD(object):
         self.models = [None] * int(total)
         self._debug = [None] * int(total)
 
-    def fit(self, data, features, epoch=100):
+    def fit(self, data, features, epoch=10, batch=None):
         nsample = data.shape[0]
         width, depth = self.width, self.depth
 
@@ -489,7 +511,7 @@ class Hierachical_MDPD(object):
             idx, sample_log_weights = cache.pop(0)
 
             logging.info('Training model ({}, {}) (depth = {})'.format(int(np.log2(idx + 1)), idx + 1 - 2 ** int(np.log2(idx + 1)), self.depth))
-            model = self._fit_one_model(data, features, sample_log_weights, epoch)
+            model = self._fit_one_model(data, features, sample_log_weights, epoch, batch)
             self.models[idx] = model
             self._debug[idx] = sample_log_weights
 
@@ -498,10 +520,10 @@ class Hierachical_MDPD(object):
             next_sample_log_weights = log_p_tilde - logsumexp(log_p_tilde, axis=0, keepdims=True)
 
             if width * idx + width < len(self.models):
-                for k in xrange(width):
+                for k in range(width):
                     cache.append((width * idx + k + 1, next_sample_log_weights[:, k]))
 
-    def _fit_one_model(self, data, features, sample_log_weights, epoch):
+    def _fit_one_model(self, data, features, sample_log_weights, epoch, batch):
         model = MDPD_standard()
         model.fit(data, self.width, sample_log_weights=sample_log_weights, init='random', features=features, epoch=epoch, verbose=False)
         return model
@@ -514,14 +536,14 @@ class Hierachical_MDPD(object):
         path = [None] * total # log weights on the sample
         path[0] = np.zeros((nsample, 1))
 
-        for idx in xrange(total - self.width ** self.depth):
+        for idx in range(total - self.width ** self.depth):
             log_joint = path[idx]
 
             model = self.models[idx]
             log_post = model.log_posterior(data)
             new_log_joint = log_post + log_joint
 
-            for k in xrange(self.width):
+            for k in range(self.width):
                 child_idx = idx * self.width + k + 1
                 path[child_idx] = new_log_joint[:, k][:, None]
 
@@ -571,14 +593,14 @@ class Hierachical_MDPD(object):
         cache['models'] = [model._tbs() for model in self.models]
 
         with open(filename, 'wb') as f:
-            cPickle.dump(cache, f)
+            pickle.dump(cache, f)
 
     def load(self, filename):
         with open(filename, 'rb') as f:
-            cache = cPickle.load(f)
+            cache = pickle.load(f)
 
         def create_model(tbl):
-            model = MDPD_standard()
+            model = MDPD_online()
             model.load_dic(tbl)
             return model
 
@@ -609,14 +631,14 @@ class MDPD2(MDPD_basic):
             self.logW, self.logC = utils.MDPD_initializer.init_random_uniform(self.dim, self.ncomp, self.nvocab)
 
         rank, sigma = utils.Feature_Selection.MI_feature_ranking(data[:1000, ...])
-        self.features_comp = [rank[:Ntop] for _ in xrange(ncomp)]
+        self.features_comp = [rank[:Ntop] for _ in range(ncomp)]
 
         ## learning
         nbatch = int(nsample / batch)
-        for ep in xrange(epoch):
+        for ep in range(epoch):
             # random permutate the data
             data = data[np.random.permutation(data.shape[0]), ...]
-            for t in xrange(nbatch):
+            for t in range(nbatch):
                 idx_batch = np.arange(t*batch, (t+1)*batch)
                 if t % update_feature_per_batchs == 0 and ep + t > 0:
                     self._update_features_comp(data[idx_batch, ...])
@@ -626,7 +648,7 @@ class MDPD2(MDPD_basic):
         log_post = self.log_posterior(data_batch)
         score, _ = utils.Feature_Selection.MI_score_conditional(data_batch, log_post, rm_diag=True)
         score = np.sum(score, axis=1)
-        for k in xrange(self.ncomp):
+        for k in range(self.ncomp):
             self.features_comp[k] = np.argsort(score[:, k])[::-1][:self.Ntop]
 
     def _em(self, data_batch):
@@ -637,7 +659,7 @@ class MDPD2(MDPD_basic):
 
     def log_posterior(self, data_batch):
         log_joint_prob = []
-        for k in xrange(self.ncomp):
+        for k in range(self.ncomp):
             features = self.features_comp[k]
             foo = utils.log_joint_prob_slice(data_batch[:, features, :], self.logW[k], self.logC[features, :, k])
             log_joint_prob.append(foo[:, np.newaxis])

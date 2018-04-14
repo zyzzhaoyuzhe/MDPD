@@ -7,7 +7,7 @@ import numpy as np
 import sys
 # from scipy.special import logsumexp
 from copy import deepcopy
-import tensor_power as tp
+from MDPD import tensor_power as tp
 
 import time
 

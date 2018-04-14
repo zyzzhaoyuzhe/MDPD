@@ -18,7 +18,7 @@ folder = '/media/vzhao/Data/crowdsourcing_datasets/'
 reader = Crowd_Sourcing_Readers(os.path.join(folder, 'bird', 'bluebird_crowd.txt'), os.path.join(folder, 'bird', 'bluebird_truth.txt'))
 train, label = reader.data, reader.labels
 lock = np.zeros(train.shape[1:], dtype=np.bool)
-print train.shape
+print(train.shape)
 
 NSAMPLE, DIM, NVOCAB = train.shape
 EFF_NVOCAB = NVOCAB-1 if reader.is_missing_value else NVOCAB
