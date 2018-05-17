@@ -5,8 +5,9 @@ from multiprocessing import Pool
 import sys
 from copy import copy
 import matplotlib.pyplot as plt
+import os
 from MDPD import utils, readers, MDPD
-
+from ete3 import Tree, faces, TreeStyle
 
 folder = "/media/vzhao/Data/MNIST"
 # folder = "/Users/vincent/Documents/Research/MDPD/MNIST"
@@ -24,9 +25,51 @@ labels_small = labels[:5000]
 data, labs = train_small, labels_small
 
 #########################
-hmodel = MDPD.Hierachical_MDPD(2)
-hmodel.fit(data, 300, epoch=2)
 
+def show_tree(experiment_folder):
+    model = MDPD.Hierachical_MDPD(1)
+    model.load(os.path.join(experiment_folder, 'model.p'))
+
+    width, depth = model.width, model.depth
+
+    root = Tree()
+
+    cache = [(0, root)]
+
+    for i in range(depth + 1):
+        foo = []
+
+        for idx, node in cache:
+            paren = int((idx - 1) / width)
+            kid = idx - paren * width
+            face = faces.ImgFace(os.path.join(experiment_folder, 'images', '{}_{}_{}.png'.format(idx, paren, kid)))
+            node.add_face(face, 0)
+
+            if i < depth:
+                for k in range(width):
+                    foo.append((idx * width + k + 1, node.add_child()))
+
+        cache = foo
+
+    ts = TreeStyle()
+    ts.mode = "c"
+
+    root.render(os.path.join(experiment_folder, 'images', 'tree_plot.png'), tree_style=ts)
+    return root
+
+experiment_folder = '/home/vzhao/Documents/Projects/MDPD/results/MNIST_hmdpd_depth_9'
+root = show_tree(experiment_folder)
+
+
+
+
+
+
+
+
+experiment_folder = '/home/vzhao/Documents/Projects/MDPD/results/MNIST_hmdpd_depth_5_features_50'
+model = MDPD.Hierachical_MDPD(1)
+model.load(os.path.join(experiment_folder, 'model.p'))
 
 
 

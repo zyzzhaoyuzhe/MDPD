@@ -10,12 +10,12 @@ mnist = readers.MNIST_Reader(folder, binarized=True)
 train, labels = mnist.train, mnist.labels
 _, DIM, _ = train.shape
 
-# data per digit
-train_uni = [None] * 10
-for dig in range(10):
-    train_uni[dig] = train[labels==dig,...]
+# # data per digit
+# train_uni = [None] * 10
+# for dig in range(10):
+#     train_uni[dig] = train[labels==dig,...]
 # small sample
-train_small = train[:20000,...]
+train_small = train[:20000, ...]
 labels_small = labels[:20000]
 
 if __name__ == '__main__':

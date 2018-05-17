@@ -155,12 +155,13 @@ class MDPD_standard(MDPD_basic):
         nsample, dim, nvocab = data.shape
         self.dim, self.nvocab, self.ncomp = dim, nvocab, ncomp
 
-        self._sample_log_weights = sample_log_weights
+        if sample_log_weights is None:
+            self._sample_log_weights = - np.log(nsample) * np.ones(nsample, dtype=np.float)
 
         self.lock = np.array(lock, dtype=np.bool) if lock is not None else np.zeros((dim, nvocab), dtype=np.bool)
 
         if features is None:
-            self.features = range(dim)
+            self.features = list(range(dim))
         elif isinstance(features, (list, np.ndarray)):
             self.features = features
         elif isinstance(features, int):
@@ -214,7 +215,7 @@ class MDPD_standard(MDPD_basic):
                 self.save(os.path.join(checkpoint_folder, 'epoch_{}'.format(ep)))
 
         if verbose:
-            with open(os.path.join(tmp_folder, 'training_stats.p'), 'w') as f:
+            with open(os.path.join(tmp_folder, 'training_stats.p'), 'wb') as f:
                 pickle.dump(self._cache, f)
             logger.info('NOTE: all records and stats are exported to {}'.format(tmp_folder))
 

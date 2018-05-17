@@ -189,7 +189,7 @@ class Feature_Selection():
         newlogW, _ = mstep(log_post, data, sample_log_weights=sample_log_weights)
         score = np.sum(pmi, axis=(1, 3))
         if rm_diag:
-            for k in xrange(ncomp):
+            for k in range(ncomp):
                 np.fill_diagonal(score[..., k], 0)
         return score, np.exp(newlogW)
 
@@ -457,16 +457,16 @@ def logsumexp(a, axis=None, b=None, keepdims=False):
 #     nsample, dim, nvocab = data.shape
 #     idx1 = np.nonzero(lock[cord1, :, comp])[0].tolist()
 #     idx2 = np.nonzero(lock[cord2, :, comp])[0].tolist()
-#     sample_part = [[[] for i in xrange(len(idx2))] for j in xrange(len(idx1))]
+#     sample_part = [[[] for i in range(len(idx2))] for j in range(len(idx1))]
 #     output = np.zeros([len(idx1), len(idx2)])
-#     for n in xrange(nsample):
+#     for n in range(nsample):
 #         p = np.where(data[n, cord1, :])[0][0]
 #         q = np.where(data[n, cord2, :])[0][0]
 #         if p in idx1 and q in idx2:
 #             sample_part[idx1.index(p)][idx2.index(q)].append(n)
 #
-#     for i in xrange(len(idx1)):
-#         for j in xrange(len(idx2)):
+#     for i in range(len(idx1)):
+#         for j in range(len(idx2)):
 #             foo = np.tensordot(logC, data[sample_part[i][j], :, :], axes=[(0, 1), (1, 2)])
 #             foo += logW[:, None]
 #             # foo.shape = (ncomp, nsample)

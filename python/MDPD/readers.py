@@ -64,7 +64,7 @@ class Crowd_Sourcing_Readers():
 
 class MNIST_Reader():
     def __init__(self, folder, binarized=True, threshold=0.5):
-        self.mnist = input_data.read_data_sets(folder, one_hot=False)
+        self.mnist = input_data.read_data_sets(folder, one_hot=True)
         # training data
         train = self.mnist.train.images
         if binarized:
