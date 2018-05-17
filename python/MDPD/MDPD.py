@@ -172,9 +172,38 @@ class MDPD_standard(MDPD_basic):
         else:
             raise ValueError('invalid input type for <features>')
 
-        logger.info(
-            "Training an MDPD using batch EM \n\t dimension %i \n\t %i features \n\t sample size %i \n\t vocab size %i \n\t the target number of components %i",
-            self.dim, len(self.features), nsample, self.nvocab, self.ncomp)
+        if init:
+            logger.info(
+                "Training an MDPD using batch EM \n"
+                "\t dimension: %i \n"
+                "\t features: %i \n"
+                "\t sample size: %i \n"
+                "\t vocab size: %i \n"
+                "\t the target number of components: %i\n"
+                "\t epoch: %d\n"
+                "\t initiated by: %s",
+                self.dim,
+                len(self.features),
+                nsample,
+                self.nvocab,
+                self.ncomp,
+                epoch,
+                init)
+        else:
+            logger.info(
+                "Training an MDPD using batch EM \n"
+                "\t dimension: %i \n"
+                "\t features: %i \n"
+                "\t sample size: %i \n"
+                "\t vocab size: %i \n"
+                "\t the target number of components: %i\n"
+                "\t epoch: %d",
+                self.dim,
+                len(self.features),
+                nsample,
+                self.nvocab,
+                self.ncomp,
+                epoch)
 
         self._model_init(data, init, init_label, init_para)
 
@@ -252,7 +281,11 @@ class MDPD_standard(MDPD_basic):
             elif init == "random":
                 self.logW, self.logC = utils.Crowdsourcing_initializer.init_random_uniform(dim, self.ncomp, self.nvocab)
             elif init == "spectral":
-                self.logW, self.logC = utils.init_spectral(data, self.ncomp)
+                if np.any(self.lock):
+                    self.logW, logC = utils.Crowdsourcing_initializer.init_spectral(data[..., :-1], self.ncomp)
+                    self.logC = np.concatenate((logC, NINF * np.ones((dim, 1, self.ncomp))), axis=1)
+                else:
+                    self.logW, self.logC = utils.Crowdsourcing_initializer.init_spectral(data, self.ncomp)
             else:
                 raise ValueError('init is not valid. It needs to one of "majority", "random", and "spectral"')
         elif isinstance(init_label, np.ndarray):

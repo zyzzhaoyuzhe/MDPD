@@ -107,7 +107,7 @@ class Crowdsourcing_initializer(MDPD_initializer):
         return mstep(log_post, data)
 
     @classmethod
-    def init_spectral(data, ncomp):
+    def init_spectral(cls, data, ncomp):
         """
         Use spectral methods to initialize EM. (Zhang. and Jordan. 2014)
         :param data:
